@@ -60,7 +60,7 @@ footer{margin-top:16px;color:var(--muted);font-size:13px;text-align:center}
 /* the public number of the registration with Microsoft ("Application (client) ID"; the registration is named Syntra Time, for personal accounts only, owner, 18 Nov 2026).
    Not a secret: it is meant to be seen and opens nothing by itself. */
 const CLIENT_ID = '436cbe32-930e-478d-84cf-97aecef7dd0d';
-const VERSION = 'Version 18 Nov, 4.';                                             /* shown at the bottom, so it is plain which copy the phone has */
+const VERSION = 'Version 18 Nov, 5.';                                             /* shown at the bottom, so it is plain which copy the phone has */
 const AUTHORITY = 'https://login.microsoftonline.com/consumers/oauth2/v2.0';     /* consumers: a personal Microsoft account, as the owner's OneDrive is */
 const SCOPE = 'Files.ReadWrite offline_access';                                  /* read and write his OneDrive files, and stay signed in; nothing else is asked for */
 const GRAPH = 'https://graph.microsoft.com/v1.0';
@@ -149,14 +149,16 @@ async function saveTest() {
 /* ---- the screen ---- */
 function result(ok, text, more) { $('resultCard').hidden = false; $('resDot').className = 'dot ' + (ok === null ? 'wait' : ok ? 'good' : 'bad'); $('result').textContent = text; $('resultMore').textContent = more || ''; }
 async function draw() {
-  const l = get(K.log) || []; $('logCard').hidden = !l.length; $('log').textContent = l.join('\n');
   $('where').textContent = 'OneDrive / ' + folder().split('/').join(' / ') + ' / Time';
   $('foot').textContent = (matchMedia('(display-mode: standalone)').matches ? 'Opened from the home screen.' : 'Opened in the browser. Add it to the home screen from the menu.') + ' Nothing is kept on this page but your sign-in. ' + VERSION;
   if (!CLIENT_ID) { $('who').textContent = 'Not set up yet: the registration with Microsoft is still to be done.'; $('whoDot').className = 'dot bad'; return; }
+  /* Who is signed in is read from his OneDrive itself, which the page is allowed to see. (It may not ask Microsoft "who am I": that needs a permission the page does not
+     ask for, and asking that question was why a good sign-in showed as "Not signed in" on 18 Nov 2026.) A pass that is here means he is signed in, name or no name. */
   const a = await pass(); let name = '';
-  if (a) { try { const me = await graph('/me?$select=displayName,userPrincipalName'); name = me.displayName || me.userPrincipalName || 'your account'; } catch (e) { name = ''; } }
-  const inn = !!(a && name); if (a && !name) note('the pass is here, but OneDrive did not say who you are');
-  $('who').textContent = inn ? 'Signed in as ' + name : 'Not signed in'; $('whoDot').className = 'dot ' + (inn ? 'good' : '');
+  if (a) { try { const d = await graph('/me/drive?$select=owner'); name = (d.owner && d.owner.user && d.owner.user.displayName) || ''; } catch (e) { note('OneDrive did not answer: ' + e.message); } }
+  const inn = !!a;
+  $('who').textContent = inn ? (name ? 'Signed in as ' + name : 'Signed in') : 'Not signed in'; $('whoDot').className = 'dot ' + (inn ? 'good' : '');
+  const l = get(K.log) || []; $('logCard').hidden = !l.length; $('log').textContent = l.join('\n');
   $('signIn').hidden = inn; $('save').hidden = !inn; $('signOut').hidden = !inn;
 }
 $('signIn').addEventListener('click', () => { result(null, 'Opening Microsoft\u2019s sign-in…'); signIn().catch((e) => result(false, 'The sign-in could not start: ' + e.message)); });
