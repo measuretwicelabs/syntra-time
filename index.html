@@ -56,8 +56,9 @@ footer{margin-top:16px;color:var(--muted);font-size:13px;text-align:center}
 <script>
 (function () {
 'use strict';
-/* the public number of the registration with Microsoft ("Application (client) ID"). Not a secret. Empty until the owner has registered. */
-const CLIENT_ID = '';
+/* the public number of the registration with Microsoft ("Application (client) ID"; the registration is named Syntra Time, for personal accounts only, owner, 18 Nov 2026).
+   Not a secret: it is meant to be seen and opens nothing by itself. */
+const CLIENT_ID = '436cbe32-930e-478d-84cf-97aecef7dd0d';
 const AUTHORITY = 'https://login.microsoftonline.com/consumers/oauth2/v2.0';     /* consumers: a personal Microsoft account, as the owner's OneDrive is */
 const SCOPE = 'Files.ReadWrite offline_access';                                  /* read and write his OneDrive files, and stay signed in; nothing else is asked for */
 const GRAPH = 'https://graph.microsoft.com/v1.0';
