@@ -1,4 +1,4 @@
-# Syntra Time
+# SyntraTime
 
 The shop time page for the phone. For now it is only a proof: after one Microsoft sign-in it saves a small test file into the owner's own OneDrive folder.
 

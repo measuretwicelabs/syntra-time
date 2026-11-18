@@ -1,6 +1,6 @@
 {
-  "name": "Syntra Time",
-  "short_name": "Syntra Time",
+  "name": "SyntraTime",
+  "short_name": "SyntraTime",
   "description": "Shop time for the Syntra programs. This first page only proves that the phone can save a file into the Syntra folder.",
   "start_url": "./",
   "scope": "./",
