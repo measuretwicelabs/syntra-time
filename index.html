@@ -51,6 +51,7 @@ footer{margin-top:16px;color:var(--muted);font-size:13px;text-align:center}
   <button type="button" class="go" id="save" hidden>Save a test file</button>
   <section class="card" id="resultCard" hidden><h2>Result</h2><p class="row"><i class="dot" id="resDot"></i><span id="result"></span></p><p class="small mono" id="resultMore"></p></section>
   <button type="button" id="signOut" hidden>Sign out on this phone</button>
+  <section class="card" id="logCard" hidden><h2>What happened</h2><p class="small mono" id="log" style="white-space:pre-wrap"></p></section>
 </main>
 <footer id="foot"></footer>
 <script>
@@ -59,12 +60,12 @@ footer{margin-top:16px;color:var(--muted);font-size:13px;text-align:center}
 /* the public number of the registration with Microsoft ("Application (client) ID"; the registration is named Syntra Time, for personal accounts only, owner, 18 Nov 2026).
    Not a secret: it is meant to be seen and opens nothing by itself. */
 const CLIENT_ID = '436cbe32-930e-478d-84cf-97aecef7dd0d';
-const VERSION = 'Version 18 Nov, 3.';                                             /* shown at the bottom, so it is plain which copy the phone has */
+const VERSION = 'Version 18 Nov, 4.';                                             /* shown at the bottom, so it is plain which copy the phone has */
 const AUTHORITY = 'https://login.microsoftonline.com/consumers/oauth2/v2.0';     /* consumers: a personal Microsoft account, as the owner's OneDrive is */
 const SCOPE = 'Files.ReadWrite offline_access';                                  /* read and write his OneDrive files, and stay signed in; nothing else is asked for */
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 const HERE = location.origin + location.pathname;                                /* where Microsoft sends him back: this page, exactly as registered */
-const K = { tok: 'syntratime.tokens', folder: 'syntratime.folder', pkce: 'syntratime.pkce' };
+const K = { tok: 'syntratime.tokens', folder: 'syntratime.folder', pkce: 'syntratime.pkce', log: 'syntratime.log' };
 const $ = (id) => document.getElementById(id);
 const get = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
 const put = (k, v) => localStorage.setItem(k, JSON.stringify(v));
@@ -75,6 +76,10 @@ function folder() {
   if (m) { const f = decodeURIComponent(m[1]).replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''); if (f) put(K.folder, f); history.replaceState(null, '', HERE); }
   return get(K.folder) || 'Syntra';
 }
+/* What happened during a sign-in, step by step, kept on the phone and shown on the page, so a sign-in that fails can be read instead of guessed at.
+   It holds no code and no pass: only which step was reached, in which window, and Microsoft's own words when it refuses. */
+const windowName = () => (matchMedia('(display-mode: standalone)').matches ? 'app' : 'browser');
+function note(what) { const l = get(K.log) || []; l.push(new Date().toTimeString().slice(0, 8) + ' ' + windowName() + ': ' + what); put(K.log, l.slice(-14)); }
 const b64url = (bytes) => btoa(String.fromCharCode.apply(null, bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const pathOf = (p) => p.split('/').map(encodeURIComponent).join('/');
 
@@ -83,11 +88,12 @@ async function signIn() {
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(48))), state = b64url(crypto.getRandomValues(new Uint8Array(12)));
   const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
   /* kept in the page's lasting storage, not the tab's: on a phone Microsoft's page may open in another window than the one that asked, and the way back must still find it */
-  put(K.pkce, { verifier, state, at: Date.now() });
+  put(K.pkce, { verifier, state, at: Date.now() }); put(K.log, []); note('sign-in started');
   location.assign(AUTHORITY + '/authorize?' + new URLSearchParams({ client_id: CLIENT_ID, response_type: 'code', redirect_uri: HERE, response_mode: 'query', scope: SCOPE, code_challenge: challenge, code_challenge_method: 'S256', state, prompt: 'select_account' }));
 }
 async function token(params) {
-  const r = await fetch(AUTHORITY + '/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(Object.assign({ client_id: CLIENT_ID, scope: SCOPE }, params)) });
+  let r; try { r = await fetch(AUTHORITY + '/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(Object.assign({ client_id: CLIENT_ID, scope: SCOPE }, params)) }); }
+  catch (e) { throw new Error('Microsoft could not be reached for the pass (' + (e && e.message || 'no connection') + ').'); }
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.access_token) throw new Error(j.error_description ? String(j.error_description).split('\n')[0].split('Trace ID')[0].trim() : 'Microsoft did not let the sign-in through.');
   const t = { access: j.access_token, refresh: j.refresh_token || (get(K.tok) || {}).refresh || null, until: Date.now() + (j.expires_in || 3600) * 1000 - 60000 };
@@ -99,16 +105,19 @@ async function token(params) {
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 async function comeBack() {
   const q = new URLSearchParams(location.search); if (!q.has('code') && !q.has('error')) return;
-  history.replaceState(null, '', HERE);
+  history.replaceState(null, '', HERE); note(q.has('code') ? 'came back from Microsoft with a code' : 'came back from Microsoft with: ' + q.get('error'));
   if (q.has('error')) { localStorage.removeItem(K.pkce); throw new Error(q.get('error') === 'access_denied' ? 'The sign-in was cancelled.' : (q.get('error_description') || 'Microsoft refused the sign-in.').split('\n')[0]); }
   const saved = get(K.pkce), fresh = saved && saved.state === q.get('state') && Date.now() - saved.at < 15 * 60000;
+  note(fresh ? 'the note of the sign-in is here' : !saved ? 'no note of the sign-in' : saved.state !== q.get('state') ? 'the note is of another sign-in' : 'the note is too old');
   try {
     if (!fresh) throw new Error('The sign-in did not start on this phone, or took too long. Press Sign in again.');
+    note('asking Microsoft for the pass');
     await token({ grant_type: 'authorization_code', code: q.get('code'), redirect_uri: HERE, code_verifier: saved.verifier });
-    localStorage.removeItem(K.pkce);
+    localStorage.removeItem(K.pkce); note('the pass arrived');
   } catch (e) {
     for (let i = 0; i < 6 && !get(K.tok); i++) await wait(500);       /* the other window may be finishing it at this moment */
-    if (get(K.tok)) { localStorage.removeItem(K.pkce); return; }
+    note('not finished here: ' + e.message);
+    if (get(K.tok)) { localStorage.removeItem(K.pkce); note('the other window finished it'); return; }
     throw e;
   }
 }
@@ -140,12 +149,13 @@ async function saveTest() {
 /* ---- the screen ---- */
 function result(ok, text, more) { $('resultCard').hidden = false; $('resDot').className = 'dot ' + (ok === null ? 'wait' : ok ? 'good' : 'bad'); $('result').textContent = text; $('resultMore').textContent = more || ''; }
 async function draw() {
+  const l = get(K.log) || []; $('logCard').hidden = !l.length; $('log').textContent = l.join('\n');
   $('where').textContent = 'OneDrive / ' + folder().split('/').join(' / ') + ' / Time';
   $('foot').textContent = (matchMedia('(display-mode: standalone)').matches ? 'Opened from the home screen.' : 'Opened in the browser. Add it to the home screen from the menu.') + ' Nothing is kept on this page but your sign-in. ' + VERSION;
   if (!CLIENT_ID) { $('who').textContent = 'Not set up yet: the registration with Microsoft is still to be done.'; $('whoDot').className = 'dot bad'; return; }
   const a = await pass(); let name = '';
   if (a) { try { const me = await graph('/me?$select=displayName,userPrincipalName'); name = me.displayName || me.userPrincipalName || 'your account'; } catch (e) { name = ''; } }
-  const inn = !!(a && name);
+  const inn = !!(a && name); if (a && !name) note('the pass is here, but OneDrive did not say who you are');
   $('who').textContent = inn ? 'Signed in as ' + name : 'Not signed in'; $('whoDot').className = 'dot ' + (inn ? 'good' : '');
   $('signIn').hidden = inn; $('save').hidden = !inn; $('signOut').hidden = !inn;
 }
