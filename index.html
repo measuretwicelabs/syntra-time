@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en-CA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1317">
+<title>Syntra Time</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<!--
+  Syntra Time: the proof (owner, 17 Nov 2026; Linework docs/QUOTES_PLAN.md, section 6b). One page, added to the phone's home screen from Chrome, that after one Microsoft
+  sign-in saves a test file into Syntra\Time\ in the owner's OneDrive. Nothing else: no timers yet. It proves the road the real shop-time page will use.
+
+  It holds no data of the owner and no secret. CLIENT_ID below is the public number of the registration with Microsoft; it is meant to be seen, and by itself it opens nothing.
+  The sign-in is Microsoft's own page (the "authorization code with PKCE" way, made for pages like this one that cannot keep a secret). What Microsoft hands back is kept
+  on the phone, in this page's own storage, and goes only to Microsoft. Where the Syntra folder is in OneDrive is kept on the phone too (it is given once, in the link that
+  sets the page up, after the # so it is never sent to any server).
+-->
+<style>
+:root{--bg:#0e1317;--card:#141b21;--fg:#d8e1e8;--muted:#8594a1;--rule:#25303a;--mark:#f0b24a;--good:#5fd08a;--bad:#ff7a6b;--btn:#4ea2ff;--btn-ink:#06121e}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--fg);font:17px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{display:flex;flex-direction:column;min-height:100dvh;padding:max(18px,env(safe-area-inset-top)) 18px max(18px,env(safe-area-inset-bottom))}
+header{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+header img{width:44px;height:44px;border-radius:10px}
+h1{margin:0;font-size:22px;font-weight:600;letter-spacing:.02em}
+header small{display:block;color:var(--muted);font-size:13.5px}
+main{flex:1;display:flex;flex-direction:column;gap:14px}
+.card{background:var(--card);border:1px solid var(--rule);border-radius:14px;padding:14px 16px;overflow-wrap:anywhere}
+.card h2{margin:0 0 4px;font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.card p{margin:0}
+.row{display:flex;align-items:center;gap:10px}
+.dot{width:11px;height:11px;border-radius:50%;background:var(--muted);flex:none}
+.dot.good{background:var(--good)}.dot.bad{background:var(--bad)}.dot.wait{background:var(--mark)}
+button{font:inherit;border-radius:14px;border:1px solid var(--rule);background:var(--card);color:var(--fg);padding:12px 16px;width:100%;min-height:56px;cursor:pointer}
+button.go{background:var(--btn);border-color:var(--btn);color:var(--btn-ink);font-weight:600;font-size:19px;min-height:72px}
+button:disabled{opacity:.5}
+.small{font-size:14px;color:var(--muted)}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13.5px}
+footer{margin-top:16px;color:var(--muted);font-size:13px;text-align:center}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header><img src="icon-192.png" alt=""><div><h1>Syntra Time</h1><small>The proof: save one test file</small></div></header>
+<main>
+  <section class="card"><h2>Microsoft</h2><p class="row"><i class="dot" id="whoDot"></i><span id="who">Checking…</span></p></section>
+  <section class="card"><h2>Saves into</h2><p class="mono" id="where"></p></section>
+  <button type="button" class="go" id="signIn" hidden>Sign in with Microsoft</button>
+  <button type="button" class="go" id="save" hidden>Save a test file</button>
+  <section class="card" id="resultCard" hidden><h2>Result</h2><p class="row"><i class="dot" id="resDot"></i><span id="result"></span></p><p class="small mono" id="resultMore"></p></section>
+  <button type="button" id="signOut" hidden>Sign out on this phone</button>
+</main>
+<footer id="foot"></footer>
+<script>
+(function () {
+'use strict';
+/* the public number of the registration with Microsoft ("Application (client) ID"). Not a secret. Empty until the owner has registered. */
+const CLIENT_ID = '';
+const AUTHORITY = 'https://login.microsoftonline.com/consumers/oauth2/v2.0';     /* consumers: a personal Microsoft account, as the owner's OneDrive is */
+const SCOPE = 'Files.ReadWrite offline_access';                                  /* read and write his OneDrive files, and stay signed in; nothing else is asked for */
+const GRAPH = 'https://graph.microsoft.com/v1.0';
+const HERE = location.origin + location.pathname;                                /* where Microsoft sends him back: this page, exactly as registered */
+const K = { tok: 'syntratime.tokens', folder: 'syntratime.folder', pkce: 'syntratime.pkce' };
+const $ = (id) => document.getElementById(id);
+const get = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
+const put = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+
+/* the Syntra folder inside OneDrive: given once in the link that sets the page up (#folder=...), then remembered on the phone. Time is the folder inside it. */
+function folder() {
+  const m = /[#&]folder=([^&]*)/.exec(location.hash);
+  if (m) { const f = decodeURIComponent(m[1]).replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''); if (f) put(K.folder, f); history.replaceState(null, '', HERE); }
+  return get(K.folder) || 'Syntra';
+}
+const b64url = (bytes) => btoa(String.fromCharCode.apply(null, bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const pathOf = (p) => p.split('/').map(encodeURIComponent).join('/');
+
+/* ---- signing in: Microsoft's own page, then back here with a code that only this phone can turn into a pass (PKCE) ---- */
+async function signIn() {
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(48))), state = b64url(crypto.getRandomValues(new Uint8Array(12)));
+  const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
+  sessionStorage.setItem(K.pkce, JSON.stringify({ verifier, state }));
+  location.assign(AUTHORITY + '/authorize?' + new URLSearchParams({ client_id: CLIENT_ID, response_type: 'code', redirect_uri: HERE, response_mode: 'query', scope: SCOPE, code_challenge: challenge, code_challenge_method: 'S256', state, prompt: 'select_account' }));
+}
+async function token(params) {
+  const r = await fetch(AUTHORITY + '/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(Object.assign({ client_id: CLIENT_ID, scope: SCOPE }, params)) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.access_token) throw new Error(j.error_description ? String(j.error_description).split('\n')[0].split('Trace ID')[0].trim() : 'Microsoft did not let the sign-in through.');
+  const t = { access: j.access_token, refresh: j.refresh_token || (get(K.tok) || {}).refresh || null, until: Date.now() + (j.expires_in || 3600) * 1000 - 60000 };
+  put(K.tok, t); return t;
+}
+/* back from Microsoft with ?code=...: finish the sign-in, then clean the address */
+async function comeBack() {
+  const q = new URLSearchParams(location.search); if (!q.has('code') && !q.has('error')) return;
+  const saved = JSON.parse(sessionStorage.getItem(K.pkce) || 'null'); sessionStorage.removeItem(K.pkce); history.replaceState(null, '', HERE);
+  if (q.has('error')) throw new Error(q.get('error') === 'access_denied' ? 'The sign-in was cancelled.' : (q.get('error_description') || 'Microsoft refused the sign-in.').split('\n')[0]);
+  if (!saved || saved.state !== q.get('state')) throw new Error('The sign-in did not start on this phone. Press Sign in again.');
+  await token({ grant_type: 'authorization_code', code: q.get('code'), redirect_uri: HERE, code_verifier: saved.verifier });
+}
+/* a pass that still works: the one kept, or a fresh one from Microsoft without asking him again */
+async function pass() {
+  const t = get(K.tok); if (!t) return null;
+  if (t.until > Date.now()) return t.access;
+  if (!t.refresh) return null;
+  try { return (await token({ grant_type: 'refresh_token', refresh_token: t.refresh })).access; } catch (e) { localStorage.removeItem(K.tok); return null; }
+}
+async function graph(path, opt) {
+  const a = await pass(); if (!a) throw new Error('Sign in with Microsoft first.');
+  let r; try { r = await fetch(GRAPH + path, Object.assign({}, opt, { headers: Object.assign({ authorization: 'Bearer ' + a }, (opt && opt.headers) || {}) })); }
+  catch (e) { throw new Error('No connection. The file was not saved. Try again when the phone has signal.'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(r.status === 401 ? 'Microsoft asks you to sign in again.' : (j.error && j.error.message) || 'OneDrive answered with an error (' + r.status + ').');
+  return j;
+}
+
+/* ---- the one thing this page does: save a small test file into <Syntra folder>/Time/ ---- */
+const two = (n) => String(n).padStart(2, '0');
+async function saveTest() {
+  const d = new Date(), name = 'test-' + d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) + '-' + two(d.getHours()) + two(d.getMinutes()) + two(d.getSeconds()) + '.json';
+  const body = JSON.stringify({ format: 'syntra.time-test', version: 1, savedAt: d.toISOString(), from: 'Syntra Time, on the phone', note: 'A test file. It proves the phone can save into Syntra/Time. It can be deleted.' }, null, 2) + '\n';
+  const j = await graph('/me/drive/root:/' + pathOf(folder() + '/Time/' + name) + ':/content?@microsoft.graph.conflictBehavior=fail', { method: 'PUT', headers: { 'content-type': 'application/json' }, body });
+  return { name: j.name || name, size: j.size, at: d };
+}
+
+/* ---- the screen ---- */
+function result(ok, text, more) { $('resultCard').hidden = false; $('resDot').className = 'dot ' + (ok === null ? 'wait' : ok ? 'good' : 'bad'); $('result').textContent = text; $('resultMore').textContent = more || ''; }
+async function draw() {
+  $('where').textContent = 'OneDrive / ' + folder().split('/').join(' / ') + ' / Time';
+  $('foot').textContent = (matchMedia('(display-mode: standalone)').matches ? 'Opened from the home screen.' : 'Opened in the browser. Add it to the home screen from the menu.') + ' Nothing is kept on this page but your sign-in.';
+  if (!CLIENT_ID) { $('who').textContent = 'Not set up yet: the registration with Microsoft is still to be done.'; $('whoDot').className = 'dot bad'; return; }
+  const a = await pass(); let name = '';
+  if (a) { try { const me = await graph('/me?$select=displayName,userPrincipalName'); name = me.displayName || me.userPrincipalName || 'your account'; } catch (e) { name = ''; } }
+  const inn = !!(a && name);
+  $('who').textContent = inn ? 'Signed in as ' + name : 'Not signed in'; $('whoDot').className = 'dot ' + (inn ? 'good' : '');
+  $('signIn').hidden = inn; $('save').hidden = !inn; $('signOut').hidden = !inn;
+}
+$('signIn').addEventListener('click', () => { signIn().catch((e) => result(false, e.message)); });
+$('save').addEventListener('click', async () => {
+  $('save').disabled = true; result(null, 'Saving…');
+  try { const r = await saveTest(); result(true, 'Saved at ' + r.at.toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit', second: '2-digit' }), r.name); }
+  catch (e) { result(false, e.message); if (/sign in/i.test(e.message)) { localStorage.removeItem(K.tok); draw(); } }
+  $('save').disabled = false;
+});
+$('signOut').addEventListener('click', () => { localStorage.removeItem(K.tok); $('resultCard').hidden = true; draw(); });
+addEventListener('hashchange', () => { draw(); });          /* the set-up link opened while the page is already open */
+(async () => { folder(); try { await comeBack(); } catch (e) { result(false, e.message); } await draw(); })();
+window.__time = { folder, pass, saveTest };
+})();
+</script>
+</body>
+</html>
