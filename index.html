@@ -9,173 +9,102 @@
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <!--
-  SyntraTime: the proof (owner, 17 Nov 2026; Linework docs/QUOTES_PLAN.md, section 6b). One page, added to the phone's home screen from Chrome, that after one Microsoft
-  sign-in saves a test file into Syntra\Time\ in the owner's OneDrive. Nothing else: no timers yet. It proves the road the real shop-time page will use.
+  SyntraTime, the phone page (owner, 17 Nov 2026; built from the screens agreed as mockups on 19 Nov 2026: Linework docs/QUOTES_PLAN.md, section 6b, and docs/time_mockups/).
+  Added to the phone's home screen from Chrome; after one sign-in it keeps every tap on the phone first and saves it into Syntra\Time\ in the shop's OneDrive.
+  The sums and the rules are all in syntratime.js; store.js keeps and sends; view.js puts what syntratime.js gives back in the order a screen wants; ms.js is the sign-in;
+  help.js is the Help window's words; app.js is the screens. This file is the frame and the look.
 
   It holds no data of the owner and no secret. CLIENT_ID below is the public number of the registration with Microsoft; it is meant to be seen, and by itself it opens nothing.
-  The sign-in is Microsoft's own page (the "authorization code with PKCE" way, made for pages like this one that cannot keep a secret). What Microsoft hands back is kept
-  on the phone, in this page's own storage, and goes only to Microsoft. Where the Syntra folder is in OneDrive is kept on the phone too (it is given once, in the link that
-  sets the page up, after the # so it is never sent to any server).
+  Where the Syntra folder is in OneDrive is given once in the link that sets the page up, after the # (so it is never sent to any server), and kept on the phone.
 -->
 <style>
-:root{--bg:#0e1317;--card:#141b21;--fg:#d8e1e8;--muted:#8594a1;--rule:#25303a;--mark:#f0b24a;--good:#5fd08a;--bad:#ff7a6b;--btn:#4ea2ff;--btn-ink:#06121e}
+:root{--bg:#0e1317;--card:#141b21;--field:#0a0f13;--fg:#d8e1e8;--muted:#8594a1;--rule:#25303a;--mark:#f0b24a;--good:#5fd08a;--bad:#ff7a6b;--btn:#4ea2ff;--btn-ink:#06121e;--mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
 *{box-sizing:border-box}
-html,body{margin:0;min-height:100%;background:var(--bg);color:var(--fg);font:17px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-body{display:flex;flex-direction:column;min-height:100dvh;padding:max(18px,env(safe-area-inset-top)) 18px max(18px,env(safe-area-inset-bottom))}
-header{display:flex;align-items:center;gap:12px;margin-bottom:18px}
-header img{width:44px;height:44px;border-radius:10px}
-h1{margin:0;font-size:22px;font-weight:600;letter-spacing:.02em}
-header small{display:block;color:var(--muted);font-size:13.5px}
-main{flex:1;display:flex;flex-direction:column;gap:14px}
-.card{background:var(--card);border:1px solid var(--rule);border-radius:14px;padding:14px 16px;overflow-wrap:anywhere}
-.card h2{margin:0 0 4px;font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600}
-.card p{margin:0}
-.row{display:flex;align-items:center;gap:10px}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:17px/1.3 'IBM Plex Sans Condensed','Roboto Condensed','Arial Narrow',sans-serif-condensed,system-ui,sans-serif;-webkit-text-size-adjust:100%}
+#app{display:flex;flex-direction:column;height:100dvh;max-width:560px;margin:0 auto}
+.top{display:flex;align-items:center;gap:10px;padding:max(16px,env(safe-area-inset-top)) 16px 10px}
+.top .mark{flex:none}
+.top .name{display:flex;flex-direction:column;flex:1;min-width:0}
+.top .title{font-size:21px;font-weight:600;letter-spacing:.02em}
+.sub{font-size:13.5px;color:var(--muted)}
+#body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:8px;padding:4px 16px 10px}
+.label{font-size:12.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.card{display:flex;flex-direction:column;gap:6px;background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:12px 14px;overflow-wrap:anywhere}
+.row{display:flex;align-items:center;gap:9px}
+.row>.grow,.grow{flex:1;min-width:0}
 .dot{width:11px;height:11px;border-radius:50%;background:var(--muted);flex:none}
-.dot.good{background:var(--good)}.dot.bad{background:var(--bad)}.dot.wait{background:var(--mark)}
-button{font:inherit;border-radius:14px;border:1px solid var(--rule);background:var(--card);color:var(--fg);padding:12px 16px;width:100%;min-height:56px;cursor:pointer}
-button.go{background:var(--btn);border-color:var(--btn);color:var(--btn-ink);font-weight:600;font-size:19px;min-height:72px}
-button:disabled{opacity:.5}
-.small{font-size:14px;color:var(--muted)}
-.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13.5px}
-footer{margin-top:16px;color:var(--muted);font-size:13px;text-align:center}
+.dot.good{background:var(--good)}.dot.wait{background:var(--mark)}.dot.bad{background:var(--bad)}
+.mono{font-family:var(--mono)}
+.small{font-size:13.5px;color:var(--muted)}
+.amber{color:var(--mark)}
+button{font:inherit;color:var(--fg);cursor:pointer}
+.btn{font-size:15px;min-height:48px;border-radius:10px;border:1px solid var(--rule);background:var(--bg);padding:0 12px}
+.btn.go{background:var(--btn);border-color:var(--btn);color:var(--btn-ink);font-weight:600;font-size:18px;min-height:60px}
+.btn.stop{font-weight:600;min-width:68px;border-color:var(--fg);background:var(--fg);color:var(--bg)}
+.btn.warn{border-color:var(--mark);color:var(--mark)}
+.btn:disabled{opacity:.5}
+.status{display:flex;align-items:center;gap:7px;min-height:44px;padding:0 4px;border:0;background:none;font-size:13.5px;color:var(--muted)}
+.status.wait{color:var(--mark)}
+.back{display:flex;align-items:center;justify-content:center;gap:4px;min-width:76px;min-height:48px;border-radius:10px;border:1px solid var(--rule);background:var(--card)}
+.bar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:10px 16px max(14px,env(safe-area-inset-bottom));border-top:1px solid var(--rule);background:var(--card)}
+.bar.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.bar .wide{grid-column:1/-1}.bar .note{grid-column:1/-1;font-size:13px;color:var(--muted);text-align:center}
+.log{display:grid;grid-template-columns:78px minmax(0,1fr);column-gap:10px;row-gap:7px;font-size:14.5px}
+.log .t{font-family:var(--mono);font-size:12.5px;color:var(--muted);padding-top:2px}
+.log .line{font:inherit;text-align:left;background:none;border:0;padding:0;color:inherit}
+.log .line.odd{color:var(--mark)}
+.log .detail{display:block;margin-top:3px;font-family:var(--mono);font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
+.daynote{grid-column:1/-1;font-size:12.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding-top:6px}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.62);display:flex;align-items:flex-end;justify-content:center;z-index:5}
+.sheet .panel{width:100%;max-width:560px;max-height:88dvh;overflow-y:auto;background:var(--card);border:1px solid var(--rule);border-radius:16px 16px 0 0;padding:16px 16px max(16px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px}
+.sheet h2{margin:0;font-size:19px;font-weight:600}
+.sheet p{margin:0}
+.sheet details{border-top:1px solid var(--rule);padding:4px 0}
+.sheet summary{min-height:44px;display:flex;align-items:center;font-weight:600;cursor:pointer}
+.sheet details p{margin:0 0 8px;font-size:15.5px;color:var(--fg)}
+.sheet .two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.section{display:flex;flex-direction:column;gap:8px}
+.trow{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:9px 9px 9px 14px}
+.trow .op{font-size:17px;font-weight:600}.trow .grow{display:flex;flex-direction:column;gap:1px}
+.trow .time,.tcard .time{font-family:var(--mono);font-size:15px;white-space:nowrap}
+.field{display:flex;flex-direction:column;gap:4px}
+.input{font:inherit;color:var(--fg);background:var(--field);border:1px solid var(--rule);border-radius:10px;min-height:48px;padding:0 14px;width:100%}
+textarea.input{padding:10px 14px;min-height:76px;resize:none}
+.pick{font:inherit;text-align:left;display:flex;align-items:center;gap:10px;min-height:50px;padding:0 14px;border-radius:10px;border:1px solid var(--rule);background:var(--card);color:var(--fg)}
+.pick.amber-edge{border-color:var(--mark)}
+.pick .more{font-size:13.5px;color:var(--muted)}
+.opgrid,.cardgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.opbtn{font:inherit;text-align:left;display:flex;flex-direction:column;justify-content:center;gap:1px;min-height:52px;padding:5px 12px;border-radius:10px;border:1px solid var(--rule);background:var(--card);color:var(--fg)}
+.opbtn.running{border-color:var(--good)}.opbtn .on{font-size:13px;color:var(--good)}
+.opbtn.dim{border-style:dashed;background:var(--bg);color:var(--muted)}
+.opbtn.dim .where,.opbtn .where{font-size:12.5px}.opbtn .where.amber{color:var(--mark)}
+.opbtn.chosen{border-color:var(--btn);background:var(--btn);color:var(--btn-ink);font-weight:600;flex-direction:row;align-items:center;gap:8px}
+.tcard{display:flex;flex-direction:column;gap:4px;background:var(--card);border:1px solid var(--good);border-radius:12px;padding:10px}
+.tcard .who{font-size:17px;font-weight:600}.tcard .note{font-size:13.5px;color:var(--muted);min-height:34px}
+.check{display:flex;align-items:center;gap:10px;min-height:44px}
+.check input{width:22px;height:22px;margin:0;accent-color:var(--mark)}
+.note-error{border:1px solid var(--mark);border-radius:10px;padding:10px 12px;color:var(--mark);display:flex;flex-direction:column;gap:8px}
+.step{font-size:13.5px;color:var(--muted)}
+.prow{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:6px 6px 6px 14px;margin-bottom:8px}.prow .who{font-weight:600}.small.good{color:var(--good)}
+.alert{border:1px solid var(--mark);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px;background:#1a1710}.askrow{display:flex;flex-direction:column;gap:6px;background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:10px}.askrow .row{gap:8px}.askrow .row .btn{flex:1}
+.check.big{min-height:52px;padding:0 14px;background:var(--card);border:1px solid var(--btn);border-radius:10px;margin-bottom:6px;display:flex;align-items:center;gap:12px}.bigrow{display:flex;align-items:baseline;gap:8px;background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:12px 14px}.kmrow{display:flex;justify-content:space-between;gap:8px;color:var(--muted);font-size:14px;padding-top:4px}.kmgo{color:var(--fg);font-family:var(--mono)}.small.amber{color:var(--mark)}
+.rowlink{font:inherit;color:inherit;background:none;border:0;padding:0;text-align:left;min-height:44px;display:block}.rowlink .op,.rowlink .sub{display:block}.facts{display:flex;flex-direction:column;gap:8px}.fact{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:6px 6px 6px 14px}.fact .fl{width:86px;color:var(--muted);font-size:13.5px}.fact .fv{min-width:0;display:flex;flex-direction:column}.fact .how{font-size:13px;color:var(--muted)}.fact .clk{font-family:var(--mono)}
 [hidden]{display:none!important}
 </style>
 </head>
 <body>
-<header><img src="icon-192.png" alt=""><div><h1>SyntraTime</h1><small>The proof: save one test file</small></div></header>
-<main>
-  <section class="card"><h2>Microsoft</h2><p class="row"><i class="dot" id="whoDot"></i><span id="who">Checking…</span></p></section>
-  <section class="card"><h2>Saves into</h2><p class="mono" id="where"></p></section>
-  <button type="button" class="go" id="signIn" hidden>Sign in with Microsoft</button>
-  <button type="button" class="go" id="save" hidden>Save a test file</button>
-  <section class="card" id="resultCard" hidden><h2>Result</h2><p class="row"><i class="dot" id="resDot"></i><span id="result"></span></p><p class="small mono" id="resultMore"></p></section>
-  <button type="button" id="signOut" hidden>Sign out on this phone</button>
-  <section class="card" id="logCard" hidden><h2>What happened</h2><p class="small mono" id="log" style="white-space:pre-wrap"></p></section>
-</main>
-<footer id="foot"></footer>
+<div id="app"><header class="top" id="top"></header><main id="body"></main><footer class="bar" id="bar" hidden></footer></div>
+<div class="sheet" id="sheet" hidden></div>
 <script>
-(function () {
-'use strict';
-/* the public number of the registration with Microsoft ("Application (client) ID"; the registration with Microsoft is named SyntraTime, for personal accounts only, owner, 18 Nov 2026).
+/* the public number of the registration with Microsoft ("Application (client) ID"; the registration is named SyntraTime, for personal accounts only, owner, 18 Nov 2026).
    Not a secret: it is meant to be seen and opens nothing by itself. */
 const CLIENT_ID = '436cbe32-930e-478d-84cf-97aecef7dd0d';
-const VERSION = 'Version 18 Nov, 6.';                                             /* shown at the bottom, so it is plain which copy the phone has */
-const AUTHORITY = 'https://login.microsoftonline.com/consumers/oauth2/v2.0';     /* consumers: a personal Microsoft account, as the owner's OneDrive is */
-const SCOPE = 'Files.ReadWrite offline_access';                                  /* read and write his OneDrive files, and stay signed in; nothing else is asked for */
-const GRAPH = 'https://graph.microsoft.com/v1.0';
-const HERE = location.origin + location.pathname;                                /* where Microsoft sends him back: this page, exactly as registered */
-const K = { tok: 'syntratime.tokens', folder: 'syntratime.folder', pkce: 'syntratime.pkce', log: 'syntratime.log' };
-const $ = (id) => document.getElementById(id);
-const get = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
-const put = (k, v) => localStorage.setItem(k, JSON.stringify(v));
-
-/* the Syntra folder inside OneDrive: given once in the link that sets the page up (#folder=...), then remembered on the phone. Time is the folder inside it. */
-function folder() {
-  const m = /[#&]folder=([^&]*)/.exec(location.hash);
-  if (m) { const f = decodeURIComponent(m[1]).replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''); if (f) put(K.folder, f); history.replaceState(null, '', HERE); }
-  return get(K.folder) || 'Syntra';
-}
-/* What happened during a sign-in, step by step, kept on the phone and shown on the page, so a sign-in that fails can be read instead of guessed at.
-   It holds no code and no pass: only which step was reached, in which window, and Microsoft's own words when it refuses. */
-const windowName = () => (matchMedia('(display-mode: standalone)').matches ? 'app' : 'browser');
-function note(what) { const l = get(K.log) || []; l.push(new Date().toTimeString().slice(0, 8) + ' ' + windowName() + ': ' + what); put(K.log, l.slice(-14)); }
-const b64url = (bytes) => btoa(String.fromCharCode.apply(null, bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const pathOf = (p) => p.split('/').map(encodeURIComponent).join('/');
-
-/* ---- signing in: Microsoft's own page, then back here with a code that only this phone can turn into a pass (PKCE) ---- */
-async function signIn() {
-  const verifier = b64url(crypto.getRandomValues(new Uint8Array(48))), state = b64url(crypto.getRandomValues(new Uint8Array(12)));
-  const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
-  /* kept in the page's lasting storage, not the tab's: on a phone Microsoft's page may open in another window than the one that asked, and the way back must still find it */
-  put(K.pkce, { verifier, state, at: Date.now() }); put(K.log, []); note('sign-in started');
-  location.assign(AUTHORITY + '/authorize?' + new URLSearchParams({ client_id: CLIENT_ID, response_type: 'code', redirect_uri: HERE, response_mode: 'query', scope: SCOPE, code_challenge: challenge, code_challenge_method: 'S256', state, prompt: 'select_account' }));
-}
-async function token(params) {
-  let r; try { r = await fetch(AUTHORITY + '/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(Object.assign({ client_id: CLIENT_ID, scope: SCOPE }, params)) }); }
-  catch (e) { throw new Error('Microsoft could not be reached for the pass (' + (e && e.message || 'no connection') + ').'); }
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j.access_token) throw new Error(j.error_description ? String(j.error_description).split('\n')[0].split('Trace ID')[0].trim() : 'Microsoft did not let the sign-in through.');
-  const t = { access: j.access_token, refresh: j.refresh_token || (get(K.tok) || {}).refresh || null, until: Date.now() + (j.expires_in || 3600) * 1000 - 60000 };
-  put(K.tok, t); return t;
-}
-/* Back from Microsoft with ?code=...: finish the sign-in, then clean the address.
-   On a phone the way back can be opened twice: once in Microsoft's own window, which the phone then closes, and once in the installed page. So the note of the sign-in is
-   kept until a pass has really arrived, either window may finish the job, and a window that finds the other has already finished it says nothing. */
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-async function comeBack() {
-  const q = new URLSearchParams(location.search); if (!q.has('code') && !q.has('error')) return;
-  history.replaceState(null, '', HERE); note(q.has('code') ? 'came back from Microsoft with a code' : 'came back from Microsoft with: ' + q.get('error'));
-  if (q.has('error')) { localStorage.removeItem(K.pkce); throw new Error(q.get('error') === 'access_denied' ? 'The sign-in was cancelled.' : (q.get('error_description') || 'Microsoft refused the sign-in.').split('\n')[0]); }
-  const saved = get(K.pkce), fresh = saved && saved.state === q.get('state') && Date.now() - saved.at < 15 * 60000;
-  note(fresh ? 'the note of the sign-in is here' : !saved ? 'no note of the sign-in' : saved.state !== q.get('state') ? 'the note is of another sign-in' : 'the note is too old');
-  try {
-    if (!fresh) throw new Error('The sign-in did not start on this phone, or took too long. Press Sign in again.');
-    note('asking Microsoft for the pass');
-    await token({ grant_type: 'authorization_code', code: q.get('code'), redirect_uri: HERE, code_verifier: saved.verifier });
-    localStorage.removeItem(K.pkce); note('the pass arrived');
-  } catch (e) {
-    for (let i = 0; i < 6 && !get(K.tok); i++) await wait(500);       /* the other window may be finishing it at this moment */
-    note('not finished here: ' + e.message);
-    if (get(K.tok)) { localStorage.removeItem(K.pkce); note('the other window finished it'); return; }
-    throw e;
-  }
-}
-/* a pass that still works: the one kept, or a fresh one from Microsoft without asking him again */
-async function pass() {
-  const t = get(K.tok); if (!t) return null;
-  if (t.until > Date.now()) return t.access;
-  if (!t.refresh) return null;
-  try { return (await token({ grant_type: 'refresh_token', refresh_token: t.refresh })).access; } catch (e) { localStorage.removeItem(K.tok); return null; }
-}
-async function graph(path, opt) {
-  const a = await pass(); if (!a) throw new Error('Sign in with Microsoft first.');
-  let r; try { r = await fetch(GRAPH + path, Object.assign({}, opt, { headers: Object.assign({ authorization: 'Bearer ' + a }, (opt && opt.headers) || {}) })); }
-  catch (e) { throw new Error('No connection. The file was not saved. Try again when the phone has signal.'); }
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(r.status === 401 ? 'Microsoft asks you to sign in again.' : (j.error && j.error.message) || 'OneDrive answered with an error (' + r.status + ').');
-  return j;
-}
-
-/* ---- the one thing this page does: save a small test file into <Syntra folder>/Time/ ---- */
-const two = (n) => String(n).padStart(2, '0');
-async function saveTest() {
-  const d = new Date(), name = 'test-' + d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) + '-' + two(d.getHours()) + two(d.getMinutes()) + two(d.getSeconds()) + '.json';
-  const body = JSON.stringify({ format: 'syntra.time-test', version: 1, savedAt: d.toISOString(), from: 'SyntraTime, on the phone', note: 'A test file. It proves the phone can save into Syntra/Time. It can be deleted.' }, null, 2) + '\n';
-  const j = await graph('/me/drive/root:/' + pathOf(folder() + '/Time/' + name) + ':/content?@microsoft.graph.conflictBehavior=fail', { method: 'PUT', headers: { 'content-type': 'application/json' }, body });
-  return { name: j.name || name, size: j.size, at: d };
-}
-
-/* ---- the screen ---- */
-function result(ok, text, more) { $('resultCard').hidden = false; $('resDot').className = 'dot ' + (ok === null ? 'wait' : ok ? 'good' : 'bad'); $('result').textContent = text; $('resultMore').textContent = more || ''; }
-async function draw() {
-  $('where').textContent = 'OneDrive / ' + folder().split('/').join(' / ') + ' / Time';
-  $('foot').textContent = (matchMedia('(display-mode: standalone)').matches ? 'Opened from the home screen.' : 'Opened in the browser. Add it to the home screen from the menu.') + ' Nothing is kept on this page but your sign-in. ' + VERSION;
-  if (!CLIENT_ID) { $('who').textContent = 'Not set up yet: the registration with Microsoft is still to be done.'; $('whoDot').className = 'dot bad'; return; }
-  /* Who is signed in is read from his OneDrive itself, which the page is allowed to see. (It may not ask Microsoft "who am I": that needs a permission the page does not
-     ask for, and asking that question was why a good sign-in showed as "Not signed in" on 18 Nov 2026.) A pass that is here means he is signed in, name or no name. */
-  const a = await pass(); let name = '';
-  if (a) { try { const d = await graph('/me/drive?$select=owner'); name = (d.owner && d.owner.user && d.owner.user.displayName) || ''; } catch (e) { note('OneDrive did not answer: ' + e.message); } }
-  const inn = !!a;
-  $('who').textContent = inn ? (name ? 'Signed in as ' + name : 'Signed in') : 'Not signed in'; $('whoDot').className = 'dot ' + (inn ? 'good' : '');
-  const l = get(K.log) || []; $('logCard').hidden = !l.length; $('log').textContent = l.join('\n');
-  $('signIn').hidden = inn; $('save').hidden = !inn; $('signOut').hidden = !inn;
-}
-$('signIn').addEventListener('click', () => { result(null, 'Opening Microsoft\u2019s sign-in…'); signIn().catch((e) => result(false, 'The sign-in could not start: ' + e.message)); });
-$('save').addEventListener('click', async () => {
-  $('save').disabled = true; result(null, 'Saving…');
-  try { const r = await saveTest(); result(true, 'Saved at ' + r.at.toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit', second: '2-digit' }), r.name); }
-  catch (e) { result(false, e.message); if (/sign in/i.test(e.message)) { localStorage.removeItem(K.tok); draw(); } }
-  $('save').disabled = false;
-});
-$('signOut').addEventListener('click', () => { localStorage.removeItem(K.tok); $('resultCard').hidden = true; draw(); });
-addEventListener('hashchange', () => { draw(); });
-/* coming back to the page (from Microsoft's window, or from another app): look again, so a sign-in finished in another window shows here */
-document.addEventListener('visibilitychange', () => { if (!document.hidden) draw(); });
-addEventListener('storage', (e) => { if (e.key === K.tok) draw(); });          /* the set-up link opened while the page is already open */
-(async () => { folder(); try { await comeBack(); } catch (e) { result(false, e.message); } await draw(); })();
-window.__time = { folder, pass, saveTest };
-})();
 </script>
+<script src="syntratime.js"></script>
+<script src="store.js"></script>
+<script src="view.js"></script>
+<script src="help.js"></script>
+<script src="ms.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

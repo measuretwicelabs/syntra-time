@@ -1,7 +1,7 @@
 {
   "name": "SyntraTime",
   "short_name": "SyntraTime",
-  "description": "Shop time for the Syntra programs. This first page only proves that the phone can save a file into the Syntra folder.",
+  "description": "Shop time for the Syntra programs: start and stop a timer for the job and the work, and see what is running.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
