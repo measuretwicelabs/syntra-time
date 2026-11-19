@@ -108,6 +108,14 @@ function showMinutes(min) {
   return h ? h + ' h' + (m ? ' ' + m + ' min' : '') : m + ' min';
 }
 
+/* a timer that is running, as the screen says it, with seconds so the owner can see it is going (19 Nov 2026, hand test 2): 727 s is "12 min 07 s", 8103 s is "2 h 15 min 03 s".
+   Only for what is on show; every sum stays in minutes. Whole seconds are cut off, never rounded up, so the figure never runs ahead of the clock; below nothing it is 0 s. */
+function showElapsed(min) {
+  if (!isNum(min)) return '';
+  const all = Math.max(0, Math.floor(min * 60 + 1e-6)), h = Math.floor(all / 3600), m = Math.floor((all % 3600) / 60), s = all % 60, two = (n) => (n < 10 ? '0' : '') + n;
+  return h ? h + ' h ' + two(m) + ' min ' + two(s) + ' s' : m ? m + ' min ' + two(s) + ' s' : s + ' s';
+}
+
 /* ---- the lists: written by SyntraQuote into the Time folder, read by SyntraTime ---------------------------------------------
    jobs        the names of the folders in SYNTRA/Jobs, as SyntraQuote read them (SyntraTime never reads Jobs itself)
    operations  [ { name, kind: person | machine, out: true when it is done out of the shop } ]
@@ -824,7 +832,7 @@ function mergeEvents(known, incoming) {
 }
 
 return { FORMAT, VERSION, ZONE, PLACES, EVENT_TYPES, OP_KINDS, CHECK_SIDES, EDITABLE, ID_LETTERS, SHOP_NO_JOB, OWN_VEHICLE, LATE_DAYS, TRIP_WIDE, STARTER_OPERATIONS,
-  isInstant, localDay, localClock, showClock, atLocal, nextDay, offsetAt, showMinutes,
+  isInstant, localDay, localClock, showClock, atLocal, nextDay, offsetAt, showMinutes, showElapsed,
   starterLists, checkLists, addName, removeName, addVehicle, removeVehicle, addOperation, setOperation, removeOperation, setJobs, setCheck, checksOn,
   namesNow, vehiclesNow, addPerson, removePerson, addVehicleHere, removeVehicleHere,
   newDeviceId, nextEventId, inOrder, eventProblems, timersFrom, startTimer, startTrip, stopTimer, stopTrip, typedTimer, editTimer, stillGoing, checkOffToday,

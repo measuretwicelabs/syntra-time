@@ -14,7 +14,7 @@ const SCREENS = [['home', 'The timers and the jobs'], ['timed', 'What is being t
 /* { id, screen, title, text: [paragraphs] } */
 const HELP = [
   { id: 'home-running', screen: 'home', title: 'Running now',
-    text: ['Every timer that is running, on this phone or on another phone or tablet, has a row: what is being timed, the job, who (or "Machine"), and how long it has been going. The minutes move by themselves.',
+    text: ['Every timer that is running, on this phone or on another phone or tablet, has a row: what is being timed, the job, who (or "Machine"), and how long it has been going. The time moves by itself, with seconds, so you can see it is going.',
       '"Stop" ends that timer now, with one tap. Time already tapped is never lost: it is kept on the phone first and sent as soon as the phone can.'] },
   { id: 'home-jobs', screen: 'home', title: 'Picking the job',
     text: ['To time something, pick its job first. The jobs are in the order you used them last, so the job you are on is near the top; "2 running" says how many timers are running on it.',

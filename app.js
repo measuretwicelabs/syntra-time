@@ -3,7 +3,7 @@
    markup; a tap is a data-act that names the function that handles it. */
 (function () {
 'use strict';
-const VERSION = 'Version 19 Nov, 8';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
+const VERSION = 'Version 19 Nov, 9';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
 const ms = MS.create({ clientId: CLIENT_ID, note: (text, more) => store.note(text, more) });
 const store = STORE.createStore({ storage: localStorage, drive: ms.drive });
 const $ = (id) => document.getElementById(id);
@@ -67,7 +67,7 @@ const errorBox = () => (ui.error ? '<div class="note-error"><div>' + esc(ui.erro
 const mainBar = () => '<button type="button" class="btn" data-act="help">Help</button>' + (screens.after ? '<button type="button" class="btn" data-act="go" data-to="after">Add time after</button>' : '') +
   '<button type="button" class="btn" data-act="go" data-to="what">What happened</button>';
 const barClass = () => (screens.after ? '' : 'two');
-const liveMinutes = (t) => '<span class="time" data-live="' + esc(t.id) + '">' + esc(ST.showMinutes(t.minutes)) + '</span>';
+const liveMinutes = (t) => '<span class="time" data-live="' + esc(t.id) + '" data-from="' + esc(Date.parse(t.start)) + '">' + esc(ST.showElapsed(t.minutes)) + '</span>';
 
 /* ---- screen 1: the timers running now, and picking the job ---- */
 function jobsMarkup() {
@@ -188,7 +188,7 @@ screens.tripstop = () => {
   const outFor = Math.max.apply(null, out.map((t) => t.minutes));
   return {
     top: '<button type="button" class="back" data-act="go" data-to="home" aria-label="Back without stopping">' + BACK + '<span>Back</span></button><div class="name"><div class="title" style="font-size:20px">Stop the trip</div><div class="sub">' + esc(trip.op + ' · ' + VIEW.jobWords(trip.job) + (trip.vehicle ? ' · ' + trip.vehicle : '')) + '</div></div>',
-    body: errorBox() + '<div class="section"><div class="bigrow"><span class="grow small" style="font-size:16px">Out for</span><span class="time" data-live="' + esc(out.find((t) => t.minutes === outFor).id) + '" style="font-size:19px">' + esc(ST.showMinutes(outFor)) + '</span></div>' +
+    body: errorBox() + '<div class="section"><div class="bigrow"><span class="grow small" style="font-size:16px">Out for</span><span class="time" data-live="' + esc(out.find((t) => t.minutes === outFor).id) + '" data-from="' + esc(Date.parse(out.find((t) => t.minutes === outFor).start)) + '" style="font-size:19px">' + esc(ST.showElapsed(outFor)) + '</span></div>' +
       '<div class="step" style="padding-top:8px">1. Who is back? Untick anyone staying out.</div>' + out.map(row).join('') +
       (driverOut ? '<label class="field" style="padding-top:8px"><span class="step">2. Odometer back, in km (may be filled in later)</span><input type="text" class="input" inputmode="numeric" data-input="back-odo" autocomplete="off" value="' + esc(b.odo) + '"' + (driverBack ? '' : ' disabled') + '></label>' +
         '<div id="backline">' + backLine(s, b, trip, driverBack) + '</div>' + (driverBack ? '' : '<div class="small">The reading goes with the driver. It is filled in when ' + esc(driverOut.person) + ' is stopped, or later.</div>') : '') +
@@ -572,15 +572,20 @@ document.addEventListener('keydown', (ev) => {
   const s = snap(), c = VIEW.jobChoices(s.timers, s.L), n = VIEW.newJob(c, ui.search), shown = VIEW.filterJobs(c, ui.search);
   if (shown.length === 1) acts.job({ name: shown[0].job }); else if (n && !shown.length) acts.job({ name: n, typed: '1' });
 });
-/* the minutes on a running timer move by themselves; a timer that has stopped (the end-of-day check) leaves the list */
+/* the time on a running timer moves by itself, with seconds, so it can be seen to be going (owner, 19 Nov 2026). The seconds are worked out from the timer's start, each second,
+   without reading the diaries again; every 15 seconds the screen is looked at properly: a timer that has stopped (the end-of-day check) leaves the list */
+function tickSeconds() {
+  for (const el of document.querySelectorAll('[data-from]')) el.textContent = ST.showElapsed((now() - Number(el.dataset.from)) / 60000);
+}
+let beat = 0;
 function tick() {
   if (!$('sheet').hidden) return;
   const s = snap(), a = document.activeElement, typing = a && a.matches && a.matches('input[type=text]');
   if (ui.view === 'home' && !typing && (VIEW.runningNow(s.timers).length !== ui.runCount || VIEW.waiting(s.timers, zone(), ST.localDay(now(), zone())).rows.length !== ui.waitCount)) { render(); return; }
-  for (const el of document.querySelectorAll('[data-live]')) { const t = s.timers.find((x) => x.id === el.dataset.live); if (t) el.textContent = ST.showMinutes(t.minutes); }
+  for (const el of document.querySelectorAll('[data-live]')) { const t = s.timers.find((x) => x.id === el.dataset.live); if (t) el.textContent = ST.showElapsed(t.minutes); }
   if (ui.view === 'home') $('top').innerHTML = screens.home().top;
 }
-setInterval(tick, 15000);
+setInterval(() => { if (document.hidden) return; tickSeconds(); if (++beat % 15 === 0) tick(); }, 1000);
 document.addEventListener('click', (ev) => {
   const el = ev.target.closest('[data-act]'); if (!el || el.disabled) return;
   const f = acts[el.dataset.act]; if (f) { ev.preventDefault(); f(el.dataset, el, ev); }
@@ -619,5 +624,5 @@ setInterval(() => { if (!document.hidden) sync(); }, 60000);
   if (back === null && !auth.signedIn && ms.maybeSilent()) return;       /* Microsoft is being tried by itself: the page comes back from it */
   sync();
 })();
-window.__time = { ST, store, ms, ui, auth, render, go, sync, now, tick };
+window.__time = { ST, store, ms, ui, auth, render, go, sync, now, tick, tickSeconds };
 })();
