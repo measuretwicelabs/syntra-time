@@ -3,7 +3,7 @@
    markup; a tap is a data-act that names the function that handles it. */
 (function () {
 'use strict';
-const VERSION = 'Version 19 Nov, 9';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
+const VERSION = 'Version 19 Nov, 10';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
 const ms = MS.create({ clientId: CLIENT_ID, note: (text, more) => store.note(text, more) });
 const store = STORE.createStore({ storage: localStorage, drive: ms.drive });
 const $ = (id) => document.getElementById(id);
@@ -73,7 +73,7 @@ const liveMinutes = (t) => '<span class="time" data-live="' + esc(t.id) + '" dat
 function jobsMarkup() {
   const s = snap(), choices = VIEW.jobChoices(s.timers, s.L), shown = VIEW.filterJobs(choices, ui.search), fresh1 = VIEW.newJob(choices, ui.search);
   /* the jobs that match come first; a typed name that is not a job yet is offered last, so a part of a name never makes a new job by a wrong tap */
-  return shown.map((c) => '<button type="button" class="pick" data-act="job" data-name="' + esc(c.job) + '"><span class="grow">' + esc(c.job) + '</span>' + (c.running ? '<span class="more">' + c.running + ' running</span>' : '') + '</button>').join('') +
+  return shown.map((c) => '<button type="button" class="pick" data-act="job" data-name="' + esc(c.job) + '"' + (c.listed ? '' : ' data-typed="1"') + '><span class="grow">' + esc(c.job) + '</span>' + (c.running ? '<span class="more">' + c.running + ' running</span>' : '') + '</button>').join('') +
     (fresh1 ? '<button type="button" class="pick" data-act="job" data-name="' + esc(fresh1) + '" data-typed="1"><span class="grow">New job: ' + esc(fresh1) + '</span></button>' : '');
 }
 screens.home = () => {
@@ -440,7 +440,7 @@ inputs['timer-remake'] = (v, el) => { ui.edit.set.remake = el.checked; render();
 const pickRow = (label, act, extra) => '<button type="button" class="pick" data-act="' + act + '" data-name="' + esc(label) + '"' + (extra || '') + '><span class="grow">' + esc(label) + '</span></button>';
 acts['timer-pick-job'] = () => {
   const s = snap(), c = VIEW.jobChoices(s.timers, s.L);
-  sheet('<h2>Job</h2>' + pickRow(ST.SHOP_NO_JOB, 'timer-set-job', ' data-none="1"') + c.map((x) => pickRow(x.job, 'timer-set-job')).join('') +
+  sheet('<h2>Job</h2>' + pickRow(ST.SHOP_NO_JOB, 'timer-set-job', ' data-none="1"') + c.map((x) => pickRow(x.job, 'timer-set-job', x.listed ? '' : ' data-known="1"')).join('') +
     '<label class="field"><span class="step">Or type a job that is not on the list</span><input type="text" class="input" id="pickjob" data-input="pickjob" autocomplete="off"></label>' +
     '<div class="two"><button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn go" data-act="timer-set-job" data-typed="1">Use this name</button></div>');
 };
@@ -448,7 +448,7 @@ inputs.pickjob = () => {};
 acts['timer-set-job'] = (d) => {
   const e = ui.edit;
   if (d.typed) { const v = ($('pickjob').value || '').trim(); if (!v) return; e.set.job = v; e.set.jobTyped = true; }
-  else if (d.none) { e.set.job = null; e.set.jobTyped = false; } else { e.set.job = d.name; e.set.jobTyped = false; }
+  else if (d.none) { e.set.job = null; e.set.jobTyped = false; } else { e.set.job = d.name; e.set.jobTyped = !!d.known; }
   closeSheet(); render();
 };
 acts['timer-pick-op'] = () => {
@@ -497,13 +497,13 @@ inputs['after-note'] = (v) => { ui.after.note = v; };
 inputs['after-remake'] = (v, el) => { ui.after.remake = el.checked; render(); };
 acts['after-pick-job'] = () => {
   const s = snap(), c = VIEW.jobChoices(s.timers, s.L);
-  sheet('<h2>Job</h2>' + pickRow(ST.SHOP_NO_JOB, 'after-set-job', ' data-none="1"') + c.map((x) => pickRow(x.job, 'after-set-job')).join('') +
+  sheet('<h2>Job</h2>' + pickRow(ST.SHOP_NO_JOB, 'after-set-job', ' data-none="1"') + c.map((x) => pickRow(x.job, 'after-set-job', x.listed ? '' : ' data-known="1"')).join('') +
     '<label class="field"><span class="step">Or type a job that is not on the list</span><input type="text" class="input" id="pickjob" data-input="pickjob" autocomplete="off"></label>' +
     '<div class="two"><button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn go" data-act="after-set-job" data-typed="1">Use this name</button></div>');
 };
 acts['after-set-job'] = (d) => {
   const a = ui.after;
-  if (d.typed) { const v = ($('pickjob').value || '').trim(); if (!v) return; a.job = v; a.jobTyped = true; } else if (d.none) { a.job = null; a.jobTyped = false; } else { a.job = d.name; a.jobTyped = false; }
+  if (d.typed) { const v = ($('pickjob').value || '').trim(); if (!v) return; a.job = v; a.jobTyped = true; } else if (d.none) { a.job = null; a.jobTyped = false; } else { a.job = d.name; a.jobTyped = !!d.known; }
   closeSheet(); render();
 };
 acts['after-pick-op'] = () => { const s = snap(); sheet('<h2>What</h2>' + s.L.operations.filter((o) => !o.out).map((o) => pickRow(o.name, 'after-set-op')).join('') + '<div class="small">A trip out of the shop is started and stopped as a trip.</div><button type="button" class="btn" data-act="close">Cancel</button>'); };
@@ -570,7 +570,7 @@ document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Enter' && ev.target.matches && ev.target.matches('#newvehicle')) { acts['vehicle-add'](); return; }
   if (ev.key !== 'Enter' || !ev.target.matches || !ev.target.matches('#search')) return;
   const s = snap(), c = VIEW.jobChoices(s.timers, s.L), n = VIEW.newJob(c, ui.search), shown = VIEW.filterJobs(c, ui.search);
-  if (shown.length === 1) acts.job({ name: shown[0].job }); else if (n && !shown.length) acts.job({ name: n, typed: '1' });
+  if (shown.length === 1) acts.job({ name: shown[0].job, typed: shown[0].listed ? '' : '1' }); else if (n && !shown.length) acts.job({ name: n, typed: '1' });
 });
 /* the time on a running timer moves by itself, with seconds, so it can be seen to be going (owner, 19 Nov 2026). The seconds are worked out from the timer's start, each second,
    without reading the diaries again; every 15 seconds the screen is looked at properly: a timer that has stopped (the end-of-day check) leaves the list */

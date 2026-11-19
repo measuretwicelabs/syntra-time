@@ -45,8 +45,8 @@ const timerLine = (t) => [jobWords(t.job), t.opKind === 'machine' ? 'Machine' : 
 /* the jobs to pick from, last used first (screen 1): the jobs SyntraQuote sent and every job named on a timer (a typed one too), each with how many of its timers are running;
    a job never used comes after the used ones, A to Z */
 function jobChoices(timers, L) {
-  const by = new Map(), note = (name) => { const k = key(name); if (!by.has(k)) by.set(k, { job: name, used: null, running: 0 }); return by.get(k); };
-  for (const j of L.jobs) note(j);
+  const by = new Map(), note = (name) => { const k = key(name); if (!by.has(k)) by.set(k, { job: name, used: null, running: 0, listed: false }); return by.get(k); };
+  for (const j of L.jobs) note(j).listed = true;      /* listed: it is one of the job folders SyntraQuote read; a name only typed before is not, and is used as a typed name again */
   for (const t of timers) { if (t.cancelled || t.job == null) continue; const c = note(t.job); if (!c.used || t.start > c.used) c.used = t.start; if (t.running) c.running++; }
   return [...by.values()].sort((a, b) => (a.used && b.used ? (a.used < b.used ? 1 : a.used > b.used ? -1 : cmp(a.job, b.job)) : a.used ? -1 : b.used ? 1 : cmp(a.job, b.job)));
 }
