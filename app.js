@@ -3,7 +3,7 @@
    markup; a tap is a data-act that names the function that handles it. */
 (function () {
 'use strict';
-const VERSION = 'Version 19 Nov, 10';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
+const VERSION = 'Version 19 Nov, 11';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
 const ms = MS.create({ clientId: CLIENT_ID, note: (text, more) => store.note(text, more) });
 const store = STORE.createStore({ storage: localStorage, drive: ms.drive });
 const $ = (id) => document.getElementById(id);
@@ -600,14 +600,18 @@ async function refreshAuth() {
   else auth.name = auth.name || store.by() || '';
   return auth;
 }
-let syncing = false;
+let syncing = false, syncAgain = false;
 async function sync() {
-  if (syncing) return; syncing = true;
+  if (syncing) { syncAgain = true; return; }        /* a tap made during a trip to OneDrive gets a second trip straight after it, not a wait for the next check */
+  syncing = true;
   try {
-    await refreshAuth();
-    if (!auth.signedIn && !store.pending()) return;
-    await store.sync();
-    render();
+    do {
+      syncAgain = false;
+      await refreshAuth();
+      if (!auth.signedIn && !store.pending()) return;
+      await store.sync();
+      render();
+    } while (syncAgain);
   } finally { syncing = false; }
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) sync(); });
