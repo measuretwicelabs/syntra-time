@@ -15,8 +15,12 @@
 'use strict';
 
 /* the page's own keys: the proof page's "syntratime.log" held something else, so the new log has a new name */
-const KEYS = { device: 'syntratime.device', by: 'syntratime.by', own: 'syntratime.events', saved: 'syntratime.saved', others: 'syntratime.others',
-  etags: 'syntratime.etags', lists: 'syntratime.lists', what: 'syntratime.what' };
+/* the diary and the lists changed shape on 21 Nov 2026 (version 2: one timer per task with its workers), so they are kept under new names and the phone takes a new device id: it starts
+   a new diary and can never write over the old one. What was tapped before stays in OneDrive, untouched. The name signed in and What happened are kept as they were. */
+const KEYS = { device: 'syntratime.device2', by: 'syntratime.by', own: 'syntratime.events2', saved: 'syntratime.saved2', others: 'syntratime.others2',
+  etags: 'syntratime.etags2', lists: 'syntratime.lists2', what: 'syntratime.what', prefs: 'syntratime.prefs' };
+/* kept from the other devices' diaries however old they are: a device's end-of-day setting (its timers follow it), and the names and vehicles added or removed on it */
+const LASTING = ['eod', 'names', 'vehicles'];
 const WINDOW_DAYS = 7;        /* how many days of the other devices' diaries the phone reads: a timer cannot run past a midnight unanswered, so a week is far more than it needs */
 const LOG_KEEP = 1500;        /* lines of "What happened" kept on the phone */
 const DAY_FILE = /^(\d{4}-\d{2}-\d{2})\.([A-Z2-9]{4})\.json$/;
@@ -28,8 +32,8 @@ function createStore(deps) {
   let device = read(KEYS.device, null);
   if (!device || !/^[A-Z2-9]{4}$/.test(device)) { device = ST.newDeviceId(); write(KEYS.device, device); }
   let by = read(KEYS.by, null), own = read(KEYS.own, []), others = read(KEYS.others, []), saved = new Set(read(KEYS.saved, [])),
-    etags = read(KEYS.etags, {}), lists = read(KEYS.lists, null), log = read(KEYS.what, []);
-  let busy = null, again = false, failing = null;
+    etags = read(KEYS.etags, {}), lists = read(KEYS.lists, null), log = read(KEYS.what, []), prefs = read(KEYS.prefs, {});
+  let busy = null, again = false, failing = null, listsBad = '';
   const iso = () => new Date(clock()).toISOString();
 
   function note(text, more) {
@@ -99,7 +103,8 @@ function createStore(deps) {
             note('Lists read from SyntraQuote: ' + [c(d.jobs.length, 'job', 'jobs'), c(d.operations.length, 'operation', 'operations'), c(d.names.length, 'name', 'names'), c(d.vehicles.length, 'vehicle', 'vehicles')].join(', '),
               { detail: ST.PLACES.lists + ', written ' + (d.written || 'no date') });
           }
-        } catch (e) { note('The lists from SyntraQuote could not be used: ' + e.message, { odd: true, detail: ST.PLACES.lists }); }
+          listsBad = '';
+        } catch (e) { if (listsBad !== e.message) note('The lists from SyntraQuote could not be used: ' + e.message, { odd: true, detail: ST.PLACES.lists }); listsBad = e.message; }       /* said once, not at every look */
       }
       /* 3. the other devices' diaries of the last days (this phone's own diary is its own) */
       const cut = cutoffDay(); let changed = false;
@@ -122,11 +127,11 @@ function createStore(deps) {
             if (m2.clashes.length) note('A diary says something different from what the phone had: ' + m2.clashes.join(', '), { odd: true, detail: path });
             others = m2.events; changed = true; rep.read++;
             if (item.eTag) etags[path] = item.eTag;
-          } catch (e) { note('A diary could not be read: ' + path, { odd: true, detail: e.message }); }
+          } catch (e) { note('A diary could not be read: ' + path, { odd: true, detail: e.message }); if (item.eTag) { etags[path] = item.eTag; write(KEYS.etags, etags); } }       /* said once: it is looked at again only when the file changes */
         }
       }
       if (changed) {
-        others = others.filter((e) => e.made.slice(0, 10) >= cut);
+        others = others.filter((e) => e.made.slice(0, 10) >= cut || LASTING.includes(e.type));
         write(KEYS.others, others); write(KEYS.etags, etags);
       }
       return rep;
@@ -142,7 +147,10 @@ function createStore(deps) {
     try { return await busy; } finally { busy = null; }
   }
 
-  return { device, KEYS, events, add, pending, note, sync, lists: currentLists, setBy, by: () => by, waiting: () => waitingFiles().length,
+  /* small things this phone remembers between visits, such as the worker picked last time (owner, 21 Nov 2026: the Start screen comes filled in with it) */
+  function pref(name, value) { if (value === undefined) return prefs[name]; prefs[name] = value; write(KEYS.prefs, prefs); return value; }
+
+  return { device, KEYS, events, add, pending, note, sync, lists: currentLists, setBy, by: () => by, pref, waiting: () => waitingFiles().length,
     log: () => log.slice(), mine: () => own.slice(), hasLists: () => !!lists, windowDays: WINDOW_DAYS };
 }
 

@@ -3,7 +3,7 @@
    markup; a tap is a data-act that names the function that handles it. */
 (function () {
 'use strict';
-const VERSION = 'Version 19 Nov, 11';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
+const VERSION = 'Version 21 Nov, 1';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
 const ms = MS.create({ clientId: CLIENT_ID, note: (text, more) => store.note(text, more) });
 const store = STORE.createStore({ storage: localStorage, drive: ms.drive });
 const $ = (id) => document.getElementById(id);
@@ -11,8 +11,27 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&':
 const now = () => Date.now();
 const zone = () => store.lists().settings.zone;
 const auth = { signedIn: false, name: '', checked: false };          /* what Microsoft says: signed in or not, and as whom */
-const ui = { view: 'home', notice: '', open: {}, earlier: false, form: { who: null, note: '', remake: false, stopOther: false }, search: '', newName: '', job: null, op: null, error: '', busy: null, runCount: 0, waitCount: 0, trip: null, back: null, edit: null, after: null, newVehicle: '', from: 'op' };
+const ui = { view: 'home', notice: '', open: {}, earlier: false, form: { who: [], note: '', remake: false }, maint: null, picking: [], pickDraw: null, search: '', newName: '', job: null, op: null, error: '', busy: null, runCount: 0, waitCount: 0, trip: null, back: null, edit: null, after: null, newVehicle: '', from: 'op' };
 const screens = {}, acts = {}, inputs = {};
+/* the notifications of the open timers (notify.js, with the service worker sw.js): one for each open timer, with Check in */
+const NOTIFY = NOTIFYLIB.create({ notices: () => VIEW.notices(snap().timers, zone()), zone, now, pref: (k, v) => store.pref(k, v), checkin: (timers, at) => checkedIn(timers, at) });
+window.NOTIFY = NOTIFY;
+/* Check in was tapped on a notification: written in the diary for each timer it stands for, with the moment it was tapped (it may have waited while the page was closed) */
+function checkedIn(timers, at) {
+  for (const id of timers || []) {
+    const s = snap();
+    try { record(ST.checkIn(s.events, store.device, store.by(), s.L, id, { at }, now())); }
+    catch (e) { store.note('A check-in from a notification was not kept: ' + e.message, { odd: true, timer: id }); }
+  }
+  render(); sync();
+}
+/* the permission is asked for once, in plain words, after the first timer is started; the phone then asks its own question. It can be turned on later from What happened. */
+function maybeAskNotify() {
+  if (NOTIFY.state() !== 'default' || store.pref('notifyAsked')) return;
+  store.pref('notifyAsked', true);
+  sheet('<p><b>Show a notification for each running timer?</b></p><p class="small">SyntraTime can keep one notification on this phone for each timer that is open. It goes when the timer stops, it rings once an hour while SyntraTime is open, and its "Check in" button says the work is still going without opening the page.</p>' +
+    '<p class="small">If you say yes, the phone will ask you to allow notifications from this page.</p><div class="two"><button type="button" class="btn" data-act="close">Not now</button><button type="button" class="btn go" data-act="notify-allow">Yes, show them</button></div>');
+}
 
 const MARK = '<svg class="mark" viewBox="0 0 32 32" width="34" height="34" aria-hidden="true"><path d="M22.6 9.4A9 9 0 1 0 22.6 22.6" fill="none" stroke="#f0b24a" stroke-width="2.6" stroke-linecap="round"/><path d="M15.6 16H24.4" stroke="#6fe7c0" stroke-width="2" stroke-linecap="round"/><circle cx="24.4" cy="16" r="1.9" fill="#6fe7c0"/></svg>';
 const BACK = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="#d8e1e8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -33,27 +52,36 @@ function snap() {
 }
 /* keep what was tapped: the events go into the phone's diary, and each gets its line in What happened */
 function wordsFor(e, timers) {
-  const who = e.opKind === 'machine' ? ' (machine)' : e.person ? ': ' + e.person : '';
-  if (e.type === 'start') return e.trip ? 'Started ' + e.op + ': ' + e.person + (e.driver ? ' (driving' + (e.vehicle ? ' the ' + e.vehicle : '') + ')' : '') : 'Started ' + e.op + who;
-  if (e.type === 'stop' && e.odoBack !== null && e.odoBack !== undefined) { const t = timers.find((x) => x.id === e.timer); return 'Stopped ' + (t ? t.op + ': ' + t.person + ', ' + ST.showMinutes(t.minutes) : 'a timer') + ', odometer back ' + VIEW.showKm(e.odoBack) + ' km'; }
-  if (e.type === 'stop') { const t = timers.find((x) => x.id === e.timer); return 'Stopped ' + (t ? t.op + (t.opKind === 'machine' ? ' (machine)' : t.person ? ': ' + t.person : '') + ', ' + ST.showMinutes(t.minutes) : 'a timer'); }
-  if (e.type === 'edit' && e.set && 'cancelled' in e.set) { const t = timers.find((x) => x.id === e.timer); return (e.set.cancelled ? 'Started by mistake: ' : 'Counted again: ') + (t ? t.op + (t.person ? ': ' + t.person : '') : 'a timer'); }
-  if (e.type === 'edit' && e.set && Object.keys(e.set).join() === 'checked') { const t = timers.find((x) => x.id === e.timer); return 'Said it is right: ' + (t ? t.op + (t.person ? ': ' + t.person : '') : 'a timer'); }
-  if (e.type === 'edit' && Object.keys(e.set).join() !== 'stop') { const t = timers.find((x) => x.id === e.timer); return 'Corrected ' + (t ? t.op + (t.person ? ': ' + t.person : '') : 'a timer') + ' (' + Object.keys(e.set).join(', ') + ')'; }
-  if (e.type === 'going') { const t = timers.find((x) => x.id === e.timer); return 'Still going' + (t ? ': ' + t.op + (t.person ? ': ' + t.person : '') : ''); }
-  if (e.type === 'edit' && e.set && Object.keys(e.set).join() === 'stop') { const t = timers.find((x) => x.id === e.timer); return 'Kept the stop' + (t ? ' of ' + t.op + (t.person ? ': ' + t.person : '') + ' at ' + ST.showClock(e.set.stop, zone()) : ''); }
+  const T = (id) => timers.find((x) => x.id === id), label = (t) => (t ? t.op + (ST.whoOf(t) ? ': ' + ST.whoOf(t) : '') : 'a timer');
+  if (e.type === 'start') return e.trip ? 'Started ' + e.op + ': ' + e.person + (e.driver ? ' (driving' + (e.vehicle ? ' the ' + e.vehicle : '') + ')' : '')
+    : 'Started ' + e.op + (e.mode === 'maintenance' ? ' (' + e.machine + ', ' + e.work + ')' : '') + ': ' + e.workers.join(', ');
+  if (e.type === 'stop') { const t = T(e.timer); return 'Stopped ' + (t ? label(t) + ', ' + ST.showMinutes(t.minutes) : 'a timer') + (e.odoBack !== null && e.odoBack !== undefined ? ', odometer back ' + VIEW.showKm(e.odoBack) + ' km' : ''); }
+  if (e.type === 'pause' || e.type === 'resume') { const t = T(e.timer), did = e.type === 'pause' ? 'Paused ' : 'Resumed '; return e.worker ? did + e.worker + ' on ' + (t ? t.op : 'a timer') : did + label(t); }
+  if (e.type === 'switch') return 'The CNC: ' + (e.to === 'cutting' ? 'cutting' : 'loading and unloading');
+  if (e.type === 'unswitch') return 'Undid the last switch on the CNC';
+  if (e.type === 'checkin') return 'Checked in: ' + label(T(e.timer)) + (e.at !== e.made ? ' (tapped at ' + ST.showClock(e.at, zone()) + ')' : '');
+  if (e.type === 'eod') return 'End-of-day check on this phone: ' + (e.on ? 'on, asks at ' : 'off (its time stays ') + ST.showClock(ST.atLocal(ST.localDay(e.made, zone()), e.at, zone()), zone()) + (e.on ? '' : ')');
+  if (e.type === 'edit' && e.set && 'cancelled' in e.set) return (e.set.cancelled ? 'Started by mistake: ' : 'Counted again: ') + label(T(e.timer));
+  if (e.type === 'edit' && e.set && Object.keys(e.set).join() === 'checked') return 'Said it is right: ' + label(T(e.timer));
+  if (e.type === 'edit' && e.set && Object.keys(e.set).join() === 'stop') { const t = T(e.timer); return 'Kept the stop' + (t ? ' of ' + label(t) + ' at ' + ST.showClock(e.set.stop, zone()) : ''); }
+  if (e.type === 'edit') return 'Corrected ' + label(T(e.timer)) + ' (' + Object.keys(e.set).join(', ') + ')';
+  if (e.type === 'going') return 'Still going: ' + label(T(e.timer));
   if (e.type === 'vehicles') return (e.action === 'add' ? 'Added ' : 'Removed ') + e.name + (e.action === 'add' ? ' to' : ' from') + ' the vehicles on this phone';
   if (e.type === 'names') return (e.action === 'add' ? 'Added ' : 'Removed ') + e.name + (e.action === 'add' ? ' to' : ' from') + ' the names on this phone';
-  if (e.type === 'checkOff') return 'Off for today: no end-of-day check for timers in the shop today';
   return e.type;
 }
 function record(evs) {
   evs = [].concat(evs); store.add(evs);
   const timers = ST.timersFrom(store.events(), store.lists(), now()).timers;
   for (const e of evs) store.note(wordsFor(e, timers), { detail: e.id + ' ' + e.type, timer: e.type === 'start' ? e.id : e.timer || null });
+  /* a timer follows the end-of-day check of the phone that started it: so that every reader has this phone's setting in the days it reads, it is written again now and then */
+  if (evs.some((e) => e.type === 'start')) { const again = ST.eodRefresh(store.events(), store.device, store.by(), now()); if (again) store.add([again]); }
+  if (window.NOTIFY) NOTIFY.refresh();
 }
-const fresh = () => ({ who: null, note: '', remake: false, stopOther: false });
-const freshAfter = () => ({ job: undefined, jobTyped: false, op: null, person: null, day: ST.localDay(now(), zone()), clock: '', length: '', stopClock: '', note: '', remake: false });
+/* the Start screen comes filled in with the worker picked last time (owner, 21 Nov 2026), when that name is still on the list */
+function lastWho() { const names = ST.namesNow(store.events(), store.lists()), last = store.pref('who') || []; return last.filter((n) => names.some((x) => x.toLowerCase() === String(n).toLowerCase())); }
+const fresh = () => ({ who: lastWho(), note: '', remake: false });
+const freshAfter = () => ({ job: undefined, jobTyped: false, op: null, who: lastWho(), day: ST.localDay(now(), zone()), clock: '', length: '', stopClock: '', note: '', remake: false });
 const freshTrip = () => ({ people: [], driver: null, vehicle: null, odo: '', note: '', stopOther: false });
 /* a typed odometer reading as a number: spaces and commas between the thousands are allowed; anything else goes to syntratime.js, which says it is not a number */
 const odoValue = (txt) => { const t = String(txt || '').replace(/[\s,\u00a0\u202f]/g, ''); return t === '' ? '' : /^\d+(\.\d+)?$/.test(t) ? Number(t) : t; };
@@ -67,7 +95,15 @@ const errorBox = () => (ui.error ? '<div class="note-error"><div>' + esc(ui.erro
 const mainBar = () => '<button type="button" class="btn" data-act="help">Help</button>' + (screens.after ? '<button type="button" class="btn" data-act="go" data-to="after">Add time after</button>' : '') +
   '<button type="button" class="btn" data-act="go" data-to="what">What happened</button>';
 const barClass = () => (screens.after ? '' : 'two');
-const liveMinutes = (t) => '<span class="time" data-live="' + esc(t.id) + '" data-from="' + esc(Date.parse(t.start)) + '">' + esc(ST.showElapsed(t.minutes)) + '</span>';
+
+/* a time that moves by itself: the minutes counted so far, and the moment they were counted, so each second adds to it without reading the diaries again. A paused timer stands still. */
+const live = (minutes, style) => '<span class="time" data-ms="' + Math.round(minutes * 60000) + '" data-at="' + now() + '"' + (style ? ' style="' + style + '"' : '') + '>' + esc(ST.showElapsed(minutes)) + '</span>';
+const CHK = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3 8.5l3.2 3.2L13 5" fill="none" stroke="#06121e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const pausedWords = (iso) => 'paused ' + ST.showClock(iso, zone());
+/* a timer's time: moving while it runs; standing still in minutes with "paused 2:41 pm" under it while the task is paused (mockup 2) */
+const timeOf = (t, size) => (t.paused ? '<span class="time stack"' + (size ? ' style="font-size:' + size + '"' : '') + '>' + esc(ST.showMinutes(t.minutes)) + '<span class="pz">' + esc(pausedWords(t.pausedAt)) + '</span></span>' : live(t.minutes, size ? 'font-size:' + size : ''));
+const pauseStop = (t, words) => '<div class="pair"><button type="button" class="btn" data-act="' + (t.paused ? 'resume' : 'pause') + '" data-id="' + esc(t.id) + '">' + (t.paused ? 'Resume' : 'Pause') + (words || '') + '</button>' +
+  '<button type="button" class="btn stop" data-act="stop" data-id="' + esc(t.id) + '">Stop</button></div>';
 
 /* ---- screen 1: the timers running now, and picking the job ---- */
 function jobsMarkup() {
@@ -77,22 +113,22 @@ function jobsMarkup() {
     (fresh1 ? '<button type="button" class="pick" data-act="job" data-name="' + esc(fresh1) + '" data-typed="1"><span class="grow">New job: ' + esc(fresh1) + '</span></button>' : '');
 }
 screens.home = () => {
-  const s = snap(), run = VIEW.runningNow(s.timers), eod = VIEW.endOfDay(s.events, s.L, now());
+  const s = snap(), run = VIEW.runningNow(s.timers), eod = VIEW.endOfDay(s.events, store.device, now(), zone());
   ui.runCount = run.length;
   const wait = VIEW.waiting(s.timers, zone(), ST.localDay(now(), zone())); ui.waitCount = wait.rows.length;
-  const ask = (r) => '<div class="askrow"><div class="trow" style="border:0;padding:0;background:none"><button type="button" class="rowlink grow" data-act="timer" data-id="' + esc(r.id) + '"><span class="op">' + esc((r.person || 'Machine') + ' \u00b7 ' + r.op) + '</span></button><span class="time">' + esc(ST.showMinutes(r.minutes)) + '</span></div>' +
-    '<div class="sub">' + esc(VIEW.jobWords(r.job)) + (r.late ? ' \u00b7 asked ' + esc(VIEW.dayName(ST.localDay(r.stop, zone()))) : '') + '</div>' +
-    '<div class="row"><button type="button" class="btn go" data-act="going" data-id="' + esc(r.id) + '" data-check="' + esc(r.stop) + '">Still going</button><button type="button" class="btn" data-act="keep-stop" data-id="' + esc(r.id) + '" data-at="' + esc(r.stop) + '">Stop at ' + esc(r.clock) + '</button></div></div>';
-  const todayAsk = wait.rows.some((r) => !r.late && !r.midnight);
+  const ask = (r) => '<div class="askrow"><div class="trow" style="border:0;padding:0;background:none"><button type="button" class="rowlink grow" data-act="timer" data-id="' + esc(r.id) + '"><span class="op">' + esc(r.who + ' · ' + r.op) + '</span></button><span class="time">' + esc(ST.showMinutes(r.minutes)) + '</span></div>' +
+    '<div class="sub">' + esc(VIEW.jobWords(r.job)) + (r.late ? ' · asked ' + esc(VIEW.dayName(ST.localDay(r.stop, zone()))) : '') + (r.paused ? ' · it was paused at ' + esc(r.stopClock) : '') + '</div>' +
+    '<div class="row"><button type="button" class="btn go" data-act="going" data-id="' + esc(r.id) + '" data-check="' + esc(r.check) + '">Still going</button><button type="button" class="btn" data-act="keep-stop" data-id="' + esc(r.id) + '" data-at="' + esc(r.stop) + '">Stop at ' + esc(r.stopClock) + '</button></div></div>';
   const box = wait.rows.length ? '<div class="section"><div class="alert"><div class="label" style="color:var(--mark);font-size:15px">' + esc(wait.heading) + '</div>' +
-    '<div class="small">A timer with no answer is stopped at the check\u2019s time and marked for you to check.</div>' + wait.rows.map(ask).join('') +
-    (todayAsk ? '<button type="button" class="btn warn" data-act="off-today" style="min-height:48px">Off for today: working late</button><div class="small">Every shop timer runs on, and the check comes back tomorrow by itself.</div>' : '') + '</div></div>' : '';
-  const row = (t) => '<div class="trow"><button type="button" class="rowlink grow" data-act="timer" data-id="' + esc(t.id) + '"><span class="op">' + esc(t.op) + '</span><span class="sub">' + esc(VIEW.timerLine(t)) + '</span></button>' + liveMinutes(t) +
-    '<button type="button" class="btn stop" data-act="stop" data-id="' + esc(t.id) + '">Stop</button></div>';
+    '<div class="small">A timer with no answer is stopped at the check’s time and marked for you to check.</div>' + wait.rows.map(ask).join('') + '</div></div>' : '';
+  /* a running timer: Pause beside Stop, on a line of their own; a paused one has an amber edge and Resume (mockup 2). A tap on a task opens its card; on a trip, that person's timer. */
+  const row = (t) => '<div class="trow wrap' + (t.paused ? ' paused' : '') + '"><button type="button" class="rowlink grow" data-act="' + (t.trip ? 'timer' : 'open') + '" data-id="' + esc(t.id) + '"><span class="op">' + esc(t.op) + '</span><span class="sub">' + esc(VIEW.timerLine(t)) + '</span></button>' +
+    timeOf(t) + pauseStop(t) + '</div>';
   return {
     top: MARK + '<div class="name"><div class="title">SyntraTime</div><div class="sub">Shop time ' + esc(ST.showClock(now(), zone())) + '</div></div>' + statusButton(),
     body: errorBox() + box + '<div class="section"><div class="label">Running now: ' + run.length + '</div>' + (run.length ? run.map(row).join('') : '<div class="small">No timer is running.</div>') +
-      '<div class="row"><div class="grow small">' + esc(eod.text) + '</div>' + (eod.state === 'on' && !todayAsk ? '<button type="button" class="btn warn" data-act="off-today" style="min-height:44px;font-size:14.5px">Off for today</button>' : '') + '</div></div>' +
+      '<div class="row" id="eod"><div class="grow"><div style="font-size:15.5px">End-of-day check</div><div class="small">' + esc(eod.text) + ' · <button type="button" class="linkbtn" data-act="eod-time">Change</button></div></div>' +
+      '<div class="seg"><button type="button" class="btn' + (eod.on ? ' lit' : '') + '" data-act="eod-on" aria-pressed="' + eod.on + '">On</button><button type="button" class="btn' + (eod.on ? '' : ' lit') + '" data-act="eod-off" aria-pressed="' + !eod.on + '">Off</button></div></div></div>' +
       '<div class="section" style="padding-top:6px"><div class="label">Start a timer: pick the job</div>' +
       '<label class="field"><span class="step">Find a job, or type a new job name. Last used first.</span><input type="text" class="input" id="search" data-input="search" placeholder="Job name" autocomplete="off" value="' + esc(ui.search) + '"></label>' +
       '<button type="button" class="pick amber-edge" data-act="job" data-none="1"><span class="grow" style="font-weight:600">Shop, no job</span><span class="more">cleaning, maintenance</span></button>' +
@@ -105,7 +141,7 @@ screens.home = () => {
 screens.timed = () => {
   const s = snap(), g = VIEW.operationGroups(s.L), job = ui.job || { name: null };
   const btn = (o) => {
-    const st = VIEW.opStatus(s.timers, job.name, o.name), on = st.running ? (o.kind === 'machine' ? 'Running' : st.running + ' running' + (st.names.length ? ': ' + st.names.join(', ') : '')) : '';
+    const st = VIEW.opStatus(s.timers, job.name, o.name), on = st.running ? st.running + ' running' + (st.names.length ? ': ' + st.names.join(', ') : '') : '';
     return '<button type="button" class="opbtn' + (st.running ? ' running' : '') + '" data-act="op" data-name="' + esc(o.name) + '"><span' + (st.running ? ' style="font-weight:600"' : '') + '>' + esc(o.name) + '</span>' + (on ? '<span class="on">' + esc(on) + '</span>' : '') + '</button>';
   };
   const group = (label, ops, first) => ops.length ? '<div class="label"' + (first ? '' : ' style="padding-top:8px"') + '>' + label + '</div><div class="opgrid">' + ops.map(btn).join('') + '</div>' : '';
@@ -188,7 +224,7 @@ screens.tripstop = () => {
   const outFor = Math.max.apply(null, out.map((t) => t.minutes));
   return {
     top: '<button type="button" class="back" data-act="go" data-to="home" aria-label="Back without stopping">' + BACK + '<span>Back</span></button><div class="name"><div class="title" style="font-size:20px">Stop the trip</div><div class="sub">' + esc(trip.op + ' · ' + VIEW.jobWords(trip.job) + (trip.vehicle ? ' · ' + trip.vehicle : '')) + '</div></div>',
-    body: errorBox() + '<div class="section"><div class="bigrow"><span class="grow small" style="font-size:16px">Out for</span><span class="time" data-live="' + esc(out.find((t) => t.minutes === outFor).id) + '" data-from="' + esc(Date.parse(out.find((t) => t.minutes === outFor).start)) + '" style="font-size:19px">' + esc(ST.showElapsed(outFor)) + '</span></div>' +
+    body: errorBox() + '<div class="section"><div class="bigrow"><span class="grow small" style="font-size:16px">Out for</span>' + live(outFor, 'font-size:19px') + '</div>' +
       '<div class="step" style="padding-top:8px">1. Who is back? Untick anyone staying out.</div>' + out.map(row).join('') +
       (driverOut ? '<label class="field" style="padding-top:8px"><span class="step">2. Odometer back, in km (may be filled in later)</span><input type="text" class="input" inputmode="numeric" data-input="back-odo" autocomplete="off" value="' + esc(b.odo) + '"' + (driverBack ? '' : ' disabled') + '></label>' +
         '<div id="backline">' + backLine(s, b, trip, driverBack) + '</div>' + (driverBack ? '' : '<div class="small">The reading goes with the driver. It is filled in when ' + esc(driverOut.person) + ' is stopped, or later.</div>') : '') +
@@ -217,20 +253,31 @@ screens.timer = () => {
   const s = snap(), e = ui.edit, base = timerNow(s, e.id);
   if (!base) { ui.edit = null; ui.view = 'home'; return screens.home(); }
   const { T, problem } = trialEdit(s, e.id, e.set), day0 = ST.localDay(base.start, zone()), dirty = Object.keys(e.set).length > 0;
-  const who = T.opKind === 'machine' ? 'Machine' : T.person;
+  const who = ST.whoOf(T);
   const fact = (label, value, act, how) => '<div class="fact"><div class="fl">' + label + '</div><div class="fv grow">' + (how ? '<span class="clk">' + esc(value) + '</span><span class="how">' + esc(how) + '</span>' : esc(value)) + '</div>' +
     (act ? '<button type="button" class="btn" data-act="' + act + '" style="min-height:44px;min-width:92px;font-size:15px">Change</button>' : '') + '</div>';
   const startW = whenWords(T.start, T.startHow, day0).split('|'), stopW = whenWords(T.stop, T.stopHow, day0).split('|');
-  const why = T.toCheck ? '<div class="alert"><div class="label" style="color:var(--mark);font-size:15px">To check</div>' + T.why.map((w) => '<div class="small" style="color:var(--fg)">' + esc(w.text) + '</div>').join('') +
-    '<button type="button" class="btn go" data-act="timer-right">' + esc(T.why.some((w) => w.why === 'check') && T.stop ? ST.showClock(T.stop, zone()) + ' is right' : 'This is right') + '</button></div>' : '';
+  /* the To check box (mockup 7): why, the last check-in with what it confirms, and the answers: it is right; stop at the last check-in; for a long timer, delete (kept and listed, not counted) */
+  const has = (k) => T.why.some((w) => w.why === k);
+  const right = has('check') && T.stop ? ST.showClock(T.stop, zone()) + ' is right' : has('long') ? ST.showMinutes(T.minutes) + ' is right' : 'This is right';
+  const checkin = T.checkin && !T.running ? '<div class="small" style="color:var(--fg)">Last check-in ' + esc(ST.showClock(T.checkin, zone())) + '. That is ' + esc(ST.showMinutes(T.confirmed)) + ' confirmed, and ' + esc(ST.showMinutes(T.unconfirmed)) + ' after it that nobody confirmed.</div>' : '';
+  const why = T.toCheck ? '<div class="alert"><div class="label" style="color:var(--mark);font-size:15px">To check</div>' + T.why.map((w) => '<div class="small" style="color:var(--fg)">' + esc(w.text) + '</div>').join('') + checkin +
+    '<button type="button" class="btn go" data-act="timer-right" style="flex:none">' + esc(right) + '</button>' +
+    (T.checkin && T.checkin !== T.stop && !T.running ? '<button type="button" class="btn" data-act="timer-checkin-stop" style="flex:none;min-height:52px;font-size:16px">Stop at the last check-in, ' + esc(ST.showClock(T.checkin, zone())) + '</button>' : '') +
+    (has('long') ? '<button type="button" class="btn warn" data-act="timer-mistake" style="flex:none;min-height:48px">Delete: keep it listed, do not count it</button>' : '') + '</div>' : '';
   const driver = T.trip && T.driver;
+  const sum = (a, b) => '<div class="sumrow"><span>' + a + '</span><span class="time">' + esc(b) + '</span></div>';
   return {
     top: '<button type="button" class="back" data-act="timer-back" aria-label="Back without saving">' + BACK + '<span>Back</span></button><div class="name"><div class="title" style="font-size:20px">' + esc(who + ' · ' + T.op) + '</div><div class="sub">' + esc(VIEW.jobWords(T.job) + ' · ' + VIEW.dayName(day0)) + '</div></div>',
     body: errorBox() + (problem ? '<div class="note-error"><div>' + esc(problem) + '</div></div>' : '') + '<div class="section">' + (T.cancelled ? '<div class="alert"><div class="label" style="color:var(--mark);font-size:15px">Started by mistake</div><div class="small" style="color:var(--fg)">Kept and shown, and not counted.</div></div>' : why) +
-      '<div class="facts">' + fact('Job', VIEW.jobWords(T.job), 'timer-pick-job') + fact('What', T.op, 'timer-pick-op') + fact('Who', who, T.opKind === 'machine' ? '' : 'timer-pick-who') +
+      '<div class="facts">' + fact('Job', VIEW.jobWords(T.job), 'timer-pick-job') + fact('What', T.op, T.mode ? '' : 'timer-pick-op') +
+      (T.mode === 'maintenance' ? fact('Machine', T.machine, 'timer-pick-machine') + fact('Kind', T.work, 'timer-pick-work') : '') +
+      fact('Who', who, !s.names.length ? '' : T.trip ? 'timer-pick-who' : 'timer-pick-workers') +
       fact('Started', startW[0], 'timer-pick-start', startW[1]) + fact('Stopped', stopW[0], T.running ? '' : 'timer-pick-stop', T.running ? '' : stopW[1]) +
       (driver ? fact('Odometer leaving', T.odoOut === null ? 'not filled in' : VIEW.showKm(T.odoOut) + ' km', 'timer-pick-odoOut') + fact('Odometer back', T.odoBack === null ? 'not filled in' : VIEW.showKm(T.odoBack) + ' km', 'timer-pick-odoBack') : '') + '</div>' +
       '<div class="bigrow" style="margin-top:8px"><span class="grow small" style="font-size:16px">Time</span><span class="time" style="font-size:19px">' + esc(ST.showMinutes(T.minutes)) + '</span></div>' +
+      (T.workers.length > 1 ? '<div class="sums">' + T.workers.map((w) => sum(esc(w.name) + (w.paused ? ' (paused)' : ''), ST.showMinutes(w.minutes))).join('') + sum(T.workers.length + ' workers, combined', ST.showMinutes(T.combined)) + '</div>' : '') +
+      (T.cnc ? '<div class="sums">' + sum('Cutting, ' + T.cnc.sheets + (T.cnc.sheets === 1 ? ' sheet' : ' sheets'), ST.showMinutes(T.cnc.cutting)) + sum('Loading and unloading', ST.showMinutes(T.cnc.loading)) + '</div>' : '') +
       '<label class="field" style="padding-top:8px"><span class="step">Note' + (T.trip ? ' (for the whole trip)' : '') + '</span><textarea class="input" rows="2" data-input="timer-note" style="padding-top:10px">' + esc('note' in e.set ? e.set.note : T.note) + '</textarea></label>' +
       (T.trip ? '' : '<label class="check"><input type="checkbox" data-input="timer-remake"' + (('remake' in e.set ? e.set.remake : T.remake) ? ' checked' : '') + '><span>Remake: redoing work already done</span></label>') + '</div>',
     bar: '<button type="button" class="btn go" data-act="timer-save"' + (dirty && !problem ? '' : ' disabled') + ' style="width:100%">Save the changes</button>' +
@@ -239,37 +286,41 @@ screens.timer = () => {
 };
 /* screen 6b: time typed in afterwards, for work nobody timed. Start and How long give the stop (or the stop is given); the start and the stop are written together, both marked typed
    (syntratime.js: typedTimer). The screen shows a trial of what would be added, and keeps nothing until the button is pressed. A trip typed in afterwards is not on this screen. */
+/* time typed in afterwards is for the plain operations in the shop: a trip is started and stopped as a trip, and the CNC and Maintenance are timed live on their own screens */
+const afterOps = (L) => L.operations.filter((o) => !o.out && !o.mode);
+function afterBase(s, a) {
+  return { job: a.job === undefined ? null : a.job, jobTyped: !!a.jobTyped, op: a.op, workers: s.names.length ? a.who : undefined, note: a.note, remake: a.remake };
+}
 function afterTrial(s, a) {
-  const mach = (s.L.operations.find((o) => o.name === a.op) || {}).kind === 'machine';
-  const f = { job: a.job === undefined ? null : a.job, jobTyped: !!a.jobTyped, op: a.op, person: s.names.length && !mach ? a.person : undefined, note: a.note, remake: mach ? false : a.remake };
-  const minutes = VIEW.parseLength(a.length), start = a.clock ? new Date(ST.atLocal(a.day, a.clock, zone())).toISOString() : null;
+  const f = afterBase(s, a), minutes = VIEW.parseLength(a.length), start = a.clock ? new Date(ST.atLocal(a.day, a.clock, zone())).toISOString() : null;
   if (!a.op) return { problem: '', ready: false };
   if (!start) return { problem: '', ready: false };
   if (String(a.length).trim() && minutes === null) return { problem: 'How long could not be read: type it like 2 h 30, 2:30 or 150.', ready: false };
+  if (s.names.length && !a.who.length) return { problem: '', ready: false };
   f.at = start;
   if (minutes !== null) f.minutes = minutes; else if (a.stopClock) f.until = new Date(ST.atLocal(a.day, a.stopClock, zone())).toISOString(); else return { problem: '', ready: false };
   try {
     const evs = ST.typedTimer(s.events, store.device, store.by() || '?', s.L, f, now()), T = ST.timersFrom(s.events.concat(evs), s.L, now()).timers.find((t) => t.id === evs[0].id);
-    return { problem: '', ready: a.job !== undefined && (!s.names.length || mach || !!a.person), evs, T, stop: evs[1].at };
+    return { problem: '', ready: a.job !== undefined, evs, T, stop: evs[1].at };
   } catch (e) { return { problem: e.message, ready: false }; }
 }
 screens.after = () => {
-  const s = snap(), a = ui.after, tr = afterTrial(s, a), machine = a.op && (s.L.operations.find((o) => o.name === a.op) || {}).kind === 'machine';
+  const s = snap(), a = ui.after, tr = afterTrial(s, a);
   const fact = (label, value, act, how, missing) => '<div class="fact"><div class="fl">' + label + '</div><div class="fv grow">' + (how ? '<span class="clk">' + esc(value) + '</span><span class="how">' + esc(how) + '</span>' : missing ? '<span class="small">' + esc(value) + '</span>' : esc(value)) + '</div>' +
     (act ? '<button type="button" class="btn" data-act="' + act + '" style="min-height:44px;min-width:92px;font-size:15px">' + (missing ? 'Pick' : 'Change') + '</button>' : '') + '</div>';
-  const minutes = VIEW.parseLength(a.length), who = machine ? 'Machine' : a.person;
+  const minutes = VIEW.parseLength(a.length), who = s.names.length ? VIEW.namesWords(a.who) : (store.by() || 'you');
   const stopShown = tr.stop ? ST.showClock(tr.stop, zone()) : null;
   const what = tr.T && tr.ready ? ST.showMinutes(tr.T.minutes) : null;
   return {
     top: '<button type="button" class="back" data-act="go" data-to="home" aria-label="Back without adding">' + BACK + '<span>Back</span></button><div class="name"><div class="title" style="font-size:20px">Add time after</div><div class="sub">For work nobody timed</div></div>',
     body: errorBox() + (tr.problem ? '<div class="note-error"><div>' + esc(tr.problem) + '</div></div>' : '') + '<div class="section"><div class="facts">' +
       fact('Job', a.job === undefined ? 'not picked yet' : VIEW.jobWords(a.job), 'after-pick-job', null, a.job === undefined) + fact('What', a.op || 'not picked yet', 'after-pick-op', null, !a.op) +
-      fact('Who', machine ? 'Machine' : who || (s.names.length ? 'not picked yet' : (store.by() || 'you')), machine || !s.names.length ? '' : 'after-pick-who', null, !machine && !who && !!s.names.length) +
+      fact('Who', who || 'not picked yet', s.names.length ? 'after-pick-who' : '', null, !who) +
       fact('Day', VIEW.dayName(a.day), 'after-pick-day') + fact('Started', a.clock ? ST.showClock(new Date(ST.atLocal(a.day, a.clock, zone())).toISOString(), zone()) : 'not set yet', 'after-pick-clock', a.clock ? 'typed' : null, !a.clock) +
       fact('How long', minutes !== null ? ST.showMinutes(minutes) : 'not set yet', 'after-pick-length', minutes !== null ? 'typed' : null, minutes === null) +
       fact('Stopped', stopShown || 'not set yet', 'after-pick-stop', stopShown ? (minutes !== null ? 'worked out from How long' : 'typed') : null, !stopShown) + '</div>' +
       '<label class="field" style="padding-top:8px"><span class="step">Note</span><textarea class="input" rows="2" data-input="after-note" style="padding-top:10px">' + esc(a.note) + '</textarea></label>' +
-      (machine ? '' : '<label class="check"><input type="checkbox" data-input="after-remake"' + (a.remake ? ' checked' : '') + '><span>Remake: redoing work already done</span></label>') +
+      '<label class="check"><input type="checkbox" data-input="after-remake"' + (a.remake ? ' checked' : '') + '><span>Remake: redoing work already done</span></label>' +
       (tr.ready && tr.T && tr.T.why.length ? '<div class="small amber">' + tr.T.why.map((w) => esc(w.text)).join(' ') + ' It will be marked to check.</div>' : '') + '</div>',
     bar: '<button type="button" class="btn go" data-act="after-add"' + (tr.ready ? '' : ' disabled') + ' style="width:100%">' + (what ? 'Add ' + esc(what) + (who ? ' for ' + esc(who) : '') : 'Add the time') + '</button><div class="small" style="text-align:center">It is marked as typed. A time still to come is refused.</div>', barClass: ''
   };
@@ -277,7 +328,7 @@ screens.after = () => {
 /* screen 3b: the names to pick on a timer, kept on this device (syntratime.js keeps what SyntraQuote wrote and what this device added or removed) */
 screens.people = () => {
   const s = snap(), live = VIEW.runningNow(s.timers);
-  const row = (n) => '<div class="prow"><div class="grow"><div class="who">' + esc(n) + '</div>' + (live.some((t) => t.person && t.person.toLowerCase() === n.toLowerCase()) ? '<div class="small good">on a timer now</div>' : '') + '</div>' +
+  const row = (n) => '<div class="prow"><div class="grow"><div class="who">' + esc(n) + '</div>' + (live.some((t) => t.workers.some((w) => w.name.toLowerCase() === n.toLowerCase())) ? '<div class="small good">on a timer now</div>' : '') + '</div>' +
     '<button type="button" class="btn warn" data-act="person-remove" data-name="' + esc(n) + '" style="min-width:92px;min-height:44px;font-size:15px">Remove</button></div>';
   return {
     top: '<button type="button" class="back" data-act="go" data-to="' + ui.from + '" aria-label="Back to ' + esc(ui.op) + '">' + BACK + '<span>Back</span></button><div class="name"><div class="title" style="font-size:20px">Add / remove a person</div><div class="sub">The names to pick on a timer</div></div>',
@@ -289,26 +340,59 @@ screens.people = () => {
     bar: '<button type="button" class="btn go" data-act="go" data-to="' + ui.from + '" style="width:100%">Done: back to ' + esc(ui.op) + '</button>', barClass: ''
   };
 };
-screens.op = () => {
-  const s = snap(), job = ui.job || { name: null }, f = ui.form, here = VIEW.opStatus(s.timers, job.name, ui.op).timers, states = VIEW.nameStates(s.names, s.timers, job.name, ui.op);
-  const card = (t) => '<div class="tcard"><div class="who">' + esc(t.person || 'Machine') + '</div>' + liveMinutes(t) + '<div class="note">' + esc(t.note) + '</div>' +
-    '<button type="button" class="btn stop" data-act="stop" data-id="' + esc(t.id) + '">Stop</button></div>';
-  const chip = (n) => {
-    if (n.state === 'here') return '<button type="button" class="opbtn dim" disabled><span>' + esc(n.name) + '</span><span class="where">' + esc(n.where) + '</span></button>';
-    if (f.who && f.who.toLowerCase() === n.name.toLowerCase()) return '<button type="button" class="opbtn chosen" aria-pressed="true" data-act="who" data-name="' + esc(n.name) + '"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3 8.5l3.2 3.2L13 5" fill="none" stroke="#06121e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>' + esc(n.name) + '</span></button>';
-    return '<button type="button" class="opbtn" data-act="who" data-name="' + esc(n.name) + '"><span>' + esc(n.name) + '</span>' + (n.state === 'busy' ? '<span class="where amber">' + esc(n.where) + '</span>' : '') + '</button>';
-  };
-  const alone = !s.names.length, person = alone ? store.by() : f.who;
+/* ---- the task card (mockup 2), the CNC's card (mockup 3), and the Start screen (mockup 1) ---- */
+/* a worker's own line on a task: their own time, and a Pause of their own. It is recorded, and it never changes the task's time. */
+function workerLine(t, w) {
+  return '<div class="wline"><span class="grow"><span class="wn">' + esc(w.name) + '</span>' + (w.paused ? '<span class="pz">' + esc(pausedWords(w.pausedAt)) + '</span>' : '') + '</span>' +
+    '<span class="small">' + esc(ST.showMinutes(w.minutes)) + '</span>' +
+    '<button type="button" class="btn mini" data-act="' + (w.paused ? 'w-resume' : 'w-pause') + '" data-id="' + esc(t.id) + '" data-name="' + esc(w.name) + '">' + (w.paused ? 'Resume' : 'Pause') + '</button></div>';
+}
+/* the CNC: two large buttons that say what the machine is doing (the one running lit in green with its own time), and its three totals */
+function cncPart(t) {
+  const c = t.cnc, cur = c.stretches[c.stretches.length - 1];
+  const big = (part) => '<button type="button" class="cncbtn' + (c.now === part ? ' on' : '') + '" data-act="cnc" data-id="' + esc(t.id) + '" data-to="' + part + '" aria-pressed="' + (c.now === part) + '"><span class="cw">' + esc(ST.CNC_WORDS[part]) + '</span>' +
+    (c.now === part ? (t.paused ? '<span class="small">paused</span>' : live(cur.minutes, 'color:var(--good)')) : '<span class="small">tap to switch</span>') + '</button>';
+  const sum = (a, b, strong) => '<div class="sumrow' + (strong ? ' strong' : '') + '"><span>' + a + '</span><span class="time">' + esc(b) + '</span></div>';
+  return '<div class="cncgrid">' + big('cutting') + big('loading') + '</div><div class="sums">' + sum('Cutting' + (c.sheets ? ', sheet ' + c.sheets : ''), ST.showMinutes(c.cutting)) +
+    sum('Loading and unloading', ST.showMinutes(c.loading)) + sum('CNC total', ST.showMinutes(t.minutes), true) + '</div>';
+}
+function taskCard(t) {
+  const head = t.mode === 'cnc' ? 'The CNC' : t.mode === 'maintenance' ? t.machine + ' · ' + t.work : 'The task';
+  return '<div class="tcard' + (t.paused ? ' paused' : '') + '" data-timer="' + esc(t.id) + '"><div class="thead"><div class="who grow">' + esc(head) + '</div>' + timeOf(t, '19px') + '</div>' +
+    (t.cnc ? cncPart(t) : '') + t.workers.map((w) => workerLine(t, w)).join('') + (t.note ? '<div class="note">' + esc(t.note) + '</div>' : '') +
+    (t.cnc ? '<button type="button" class="btn quiet" data-act="cnc-undo" data-id="' + esc(t.id) + '"' + (t.cnc.lastSwitch ? '' : ' disabled') + '>Undo the last switch</button>' : '') +
+    pauseStop(t, ' the task') + '<button type="button" class="linkbtn center" data-act="timer" data-id="' + esc(t.id) + '">Correct this timer</button></div>';
+}
+/* maintenance (mockup 6): which machine, then what kind of work; "Next" is the Start screen */
+screens.maint = () => {
+  const s = snap(), job = ui.job || { name: null }, m = ui.maint || { machine: null, work: null };
+  const pick = (label, act, on) => '<button type="button" class="opbtn' + (on ? ' chosen" aria-pressed="true' : '') + '" data-act="' + act + '" data-name="' + esc(label) + '">' + (on ? CHK : '') + '<span>' + esc(label) + '</span></button>';
   return {
     top: '<button type="button" class="back" data-act="go" data-to="timed" aria-label="Back to what is timed">' + BACK + '<span>Back</span></button><div class="name"><div class="title" style="font-size:20px">' + esc(ui.op) + '</div><div class="sub">' + esc(VIEW.jobWords(job.name)) + '</div></div>',
-    body: errorBox() + '<div class="section"><div class="label">Running here: ' + here.length + '</div>' + (here.length ? '<div class="cardgrid">' + here.map(card).join('') + '</div>' : '<div class="small">Nothing is running here yet.</div>') + '</div>' +
+    body: errorBox() + '<div class="section"><div class="step">1. Which machine?</div>' +
+      (s.L.machines.length ? '<div class="cardgrid">' + s.L.machines.map((x) => pick(x, 'm-machine', m.machine === x)).join('') + '</div>' : '<div class="small">No machines are on the list yet. They are added in SyntraQuote: Settings, Shop time, Machines.</div>') +
+      '<div class="step" style="padding-top:8px">2. What kind of work?</div><div class="cardgrid one">' + ST.MAINTENANCE_KINDS.map((x) => pick(x, 'm-work', m.work === x)).join('') + '</div>' +
+      '<div class="small" style="padding-top:4px">The job stays "Shop, no job" unless you picked one.</div>' +
+      '<button type="button" class="btn go" data-act="m-next" style="flex:none"' + (m.machine && m.work ? '' : ' disabled') + '>Next: who is working</button></div>',
+    bar: mainBar(), barClass: barClass()
+  };
+};
+/* screen 3, as changed on 21 Nov 2026: the tasks running on this operation, one card each, and the Start screen under them, the same for every operation, machines too */
+screens.op = () => {
+  const s = snap(), job = ui.job || { name: null }, f = ui.form, here = VIEW.opStatus(s.timers, job.name, ui.op).timers, m = ui.maint;
+  const chip = (n) => { const on = f.who.some((x) => x.toLowerCase() === n.toLowerCase());
+    return '<button type="button" class="opbtn' + (on ? ' chosen" aria-pressed="true' : '') + '" data-act="who" data-name="' + esc(n) + '">' + (on ? CHK : '') + '<span>' + esc(n) + '</span></button>'; };
+  const alone = !s.names.length, me = store.by(), ready = alone || f.who.length > 0;       /* alone and not signed in: the tap says so in plain words, and offers the sign-in */
+  return {
+    top: '<button type="button" class="back" data-act="go" data-to="' + (m ? 'maint' : 'timed') + '" aria-label="Back">' + BACK + '<span>Back</span></button><div class="name"><div class="title" style="font-size:20px">' + esc(ui.op) + '</div><div class="sub">' + esc(VIEW.jobWords(job.name) + (m ? ' · ' + m.machine + ' · ' + m.work : '')) + '</div></div>',
+    body: errorBox() + '<div class="section"><div class="label">Running here: ' + here.length + '</div>' + (here.length ? '<div class="cardgrid one">' + here.map(taskCard).join('') + '</div>' : '<div class="small">Nothing is running here yet.</div>') + '</div>' +
       '<div class="section" style="padding-top:12px"><div class="label">Add a timer</div>' +
-      (alone ? '<div class="step">The timer is in your name' + (person ? ' (' + esc(person) + ')' : '') + '. Names to pick from can be added with Add / remove a person.</div>'
-        : '<div class="step">1. Who is it for?</div><div class="cardgrid">' + states.map(chip).join('') + '</div>') +
+      (alone ? '<div class="step">The timer is in your name' + (me ? ' (' + esc(me) + ')' : '') + '. Names to pick from can be added with Add / remove a person.</div>'
+        : '<div class="step">1. Who is working? Pick one or more</div><div class="cardgrid">' + s.names.map(chip).join('') + '</div>') +
       '<button type="button" class="btn" data-act="go" data-to="people" data-from="op" style="min-height:44px;font-size:15px">Add / remove a person</button>' +
       '<label class="field" style="padding-top:4px"><span class="step">' + (alone ? '1' : '2') + '. A note on what it is (you may leave it empty)</span><input type="text" class="input" data-input="note" autocomplete="off" value="' + esc(f.note) + '"></label>' +
       '<label class="check"><input type="checkbox" data-input="remake"' + (f.remake ? ' checked' : '') + '><span>Remake: redoing work already done</span></label>' +
-      '<button type="button" class="btn go" data-act="start"' + (person ? '' : ' disabled') + '>' + (person ? 'Start ' + esc(person) + '’s timer' : 'Pick who it is for') + '</button></div>',
+      '<button type="button" class="btn go" data-act="start"' + (ready ? '' : ' disabled') + '>' + (alone ? 'Start the timer' : f.who.length ? 'Start: ' + esc(VIEW.namesWords(f.who)) : 'Pick who is working') + '</button></div>',
     bar: mainBar(), barClass: barClass()
   };
 };
@@ -327,12 +411,17 @@ screens.what = () => {
   const saved = '<section class="card"><div class="label">Saved</div><div class="row">' + dot(n ? 'wait' : 'good') + '<div class="grow ' + (n ? 'amber' : '') + '">' +
     (n ? n + (n === 1 ? ' record is' : ' records are') + ' waiting on this phone.' : 'All saved. Nothing waiting on this phone.') + '</div></div>' +
     '<div class="mono small" id="where">' + esc(ms.where().split('/').join(' / ')) + '</div></section>';
+  const ns = NOTIFY.state();
+  const notify = '<section class="card" id="notifycard"><div class="label">Notifications</div><div class="row">' + dot(ns === 'granted' ? 'good' : '') + '<div class="grow">' +
+    (ns === 'granted' ? 'On: one for each open timer, with Check in.' : ns === 'default' ? 'Off.' : ns === 'denied' ? 'Blocked for this page in the phone\u2019s own settings.' : 'This phone\u2019s browser cannot show them.') + '</div></div>' +
+    '<div class="small">' + (ns === 'denied' ? 'To use them, allow notifications for this page in the phone\u2019s settings, then open SyntraTime again. ' : '') + 'A notification can be swiped away; it comes back while SyntraTime is open. The hourly ring is dependable only while SyntraTime is open.</div>' +
+    (ns === 'default' ? '<button type="button" class="btn" data-act="notify-allow">Show a notification for each open timer</button>' : '') + '</section>';
   const list = ui.earlier
     ? '<section class="card grow"><div class="label">Earlier days</div><div class="log">' + (days.earlier.length ? days.earlier.map((d) => '<div class="daynote">' + esc(d.label) + '</div>' + d.lines.map(line).join('')).join('') : '<div class="daynote" style="grid-column:1/-1;text-transform:none;letter-spacing:0;font-weight:400">Nothing from earlier days is kept on this phone.</div>') + '</div></section>'
     : '<section class="card grow"><div class="label">Today, newest first</div><div class="log">' + (days.today.length ? days.today.map(line).join('') : '<div style="grid-column:1/-1" class="small">Nothing has happened yet today.</div>') + '</div></section>';
   return {
     top: backButton('home', 'Back to the timers') + '<div class="name"><div class="title" style="font-size:20px">What happened</div><div class="sub">This phone is ' + esc(store.device) + '</div></div>',
-    body: microsoft + saved + list,
+    body: microsoft + saved + notify + list,
     bar: '<button type="button" class="btn' + (auth.signedIn ? '' : ' wide') + '" data-act="earlier">' + (ui.earlier ? 'Back to today' : 'Earlier days') + '</button>' +
       (auth.signedIn ? '<button type="button" class="btn" data-act="signout-ask">Sign out on this phone</button>' : '') + '<div class="note">' + esc(VERSION) + '</div>',
     barClass: 'two'
@@ -366,6 +455,7 @@ function helpSheet() {
 /* ---- taps ---- */
 acts.go = (d) => { if (d.from) ui.from = d.from; if (d.to === 'after') ui.after = freshAfter(); go(d.to); };
 acts.close = () => closeSheet();
+acts['notify-allow'] = () => { closeSheet(); NOTIFY.ask().then(() => render()); };
 acts.help = () => helpSheet();
 acts.line = (d) => { ui.open[d.i] = !ui.open[d.i]; render(); };
 acts.earlier = () => { ui.earlier = !ui.earlier; render(); $('body').scrollTop = 0; };
@@ -385,7 +475,7 @@ acts['trip-who'] = (d) => {
   if (st && st.state === 'busy' && !f.stopOther) {
     /* a name already on another timer: syntratime.js refuses the start and says where; the screen asks first, as on screen 3 */
     try { ST.startTrip(s.events, store.device, store.by() || '?', s.L, { job: ui.job.name, jobTyped: !!ui.job.typed, op: ui.op, people: [d.name], driver: d.name, vehicle: ST.OWN_VEHICLE }, now()); }
-    catch (e) { if (e.busy) { ask(e.message, 'Stop that timer and start the trip', 'trip-who-stop', { name: d.name }, 'Not now'); return; } }
+    catch (e) { if (e.busy) { ask(e.message, /Pause /.test(e.message) ? 'Pause and start the trip' : 'Stop that timer and start the trip', 'trip-who-stop', { name: d.name }, 'Not now'); return; } }
   }
   f.people.push(d.name); render();
 };
@@ -399,7 +489,7 @@ acts['trip-start'] = () => {
   try {
     ui.error = '';
     record(ST.startTrip(s.events, store.device, store.by(), s.L, { job: job.name, jobTyped: !!job.typed, op: ui.op, people: alone ? undefined : f.people, driver: f.driver || undefined, vehicle: f.vehicle, odoOut: odoValue(f.odo), note: f.note, stopOther: f.stopOther }, now()));
-    ui.trip = null; ui.job = null; ui.search = ''; go('home'); sync();
+    ui.trip = null; ui.job = null; ui.search = ''; go('home'); sync(); maybeAskNotify();
   } catch (e) { ui.error = e.message; render(); }
 };
 acts['vehicle-add'] = () => { const s = snap(), name = ui.newVehicle; attempt(() => { record(ST.addVehicleHere(s.events, store.device, store.by(), s.L, name, now())); ui.newVehicle = ''; }); if ($('newvehicle')) $('newvehicle').focus(); };
@@ -452,12 +542,29 @@ acts['timer-set-job'] = (d) => {
   closeSheet(); render();
 };
 acts['timer-pick-op'] = () => {
-  const s = snap(), T = timerNow(s, ui.edit.id), ops = s.L.operations.filter((o) => o.out === T.out);
+  const s = snap(), T = timerNow(s, ui.edit.id), ops = s.L.operations.filter((o) => o.out === T.out && !o.mode);
   sheet('<h2>What</h2>' + ops.map((o) => pickRow(o.name, 'timer-set-op')).join('') + '<button type="button" class="btn" data-act="close">Cancel</button>');
 };
 acts['timer-set-op'] = (d) => { ui.edit.set.op = d.name; closeSheet(); render(); };
 acts['timer-pick-who'] = () => { const s = snap(); sheet('<h2>Who</h2>' + s.names.map((n) => pickRow(n, 'timer-set-who')).join('') + '<button type="button" class="btn" data-act="close">Cancel</button>'); };
 acts['timer-set-who'] = (d) => { ui.edit.set.person = d.name; closeSheet(); render(); };
+/* who is working, picked in a sheet: one or more names, each tapped on or off, then Done (a timer's Who, and Add time after) */
+function whoSheet(title, chosen, doneAct) {
+  const names = snap().names; ui.picking = chosen.filter((x) => names.some((n) => n.toLowerCase() === x.toLowerCase()));
+  ui.pickDraw = () => sheet('<h2>' + title + '</h2><div class="step">Pick one or more</div><div class="cardgrid">' + names.map((n) => { const on = ui.picking.some((x) => x.toLowerCase() === n.toLowerCase());
+    return '<button type="button" class="opbtn' + (on ? ' chosen" aria-pressed="true' : '') + '" data-act="pick-who" data-name="' + esc(n) + '">' + (on ? CHK : '') + '<span>' + esc(n) + '</span></button>'; }).join('') + '</div>' +
+    '<div class="two"><button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn go" data-act="' + doneAct + '"' + (ui.picking.length ? '' : ' disabled') + '>Done</button></div>');
+  ui.pickDraw();
+}
+acts['pick-who'] = (d) => { const i = ui.picking.findIndex((x) => x.toLowerCase() === d.name.toLowerCase()); if (i >= 0) ui.picking.splice(i, 1); else ui.picking.push(d.name); ui.pickDraw(); };
+acts['timer-pick-workers'] = () => { const s = snap(), T = trialEdit(s, ui.edit.id, ui.edit.set).T; whoSheet('Who is working', T.workers.map((w) => w.name), 'timer-set-workers'); };
+acts['timer-set-workers'] = () => { ui.edit.set.workers = ui.picking.slice(); closeSheet(); render(); };
+acts['timer-pick-machine'] = () => { const s = snap(); sheet('<h2>Machine</h2>' + s.L.machines.map((n) => pickRow(n, 'timer-set-machine')).join('') + '<button type="button" class="btn" data-act="close">Cancel</button>'); };
+acts['timer-set-machine'] = (d) => { ui.edit.set.machine = d.name; closeSheet(); render(); };
+acts['timer-pick-work'] = () => sheet('<h2>Kind of work</h2>' + ST.MAINTENANCE_KINDS.map((n) => pickRow(n, 'timer-set-work')).join('') + '<button type="button" class="btn" data-act="close">Cancel</button>');
+acts['timer-set-work'] = (d) => { ui.edit.set.work = d.name; closeSheet(); render(); };
+/* "Stop at the last check-in": the stop corrected to the last moment anyone confirmed the work was going */
+acts['timer-checkin-stop'] = () => { const s = snap(), e = ui.edit; try { ui.error = ''; record(ST.stopAtCheckin(s.events, store.device, store.by(), s.L, e.id, now())); editDone(); } catch (err) { ui.error = err.message; render(); } };
 function pickTime(which) {
   const s = snap(), T = trialEdit(s, ui.edit.id, ui.edit.set).T, iso = T[which] || new Date(now()).toISOString();
   sheet('<h2>' + (which === 'start' ? 'Started' : 'Stopped') + '</h2><label class="field"><span class="step">Day</span><input type="date" class="input" id="pickday" value="' + esc(ST.localDay(iso, zone())) + '"></label>' +
@@ -483,13 +590,13 @@ acts['after-add'] = () => {
   try {
     if (!tr.ready) throw new Error(tr.problem || 'Fill in what is missing first.');
     ui.error = ''; const evs = ST.typedTimer(s.events, store.device, store.by(), s.L, afterFields(s, ui.after), now());
-    store.add(evs); store.note('Added ' + ST.showMinutes(tr.T.minutes) + ' after: ' + evs[0].op + (evs[0].person ? ': ' + evs[0].person : ' (machine)') + ', ' + VIEW.dayName(ST.localDay(evs[0].at, zone())), { detail: evs[0].id + ' start typed, ' + evs[1].id + ' stop typed', timer: evs[0].id });
+    store.add(evs); store.note('Added ' + ST.showMinutes(tr.T.minutes) + ' after: ' + evs[0].op + ': ' + evs[0].workers.join(', ') + ', ' + VIEW.dayName(ST.localDay(evs[0].at, zone())), { detail: evs[0].id + ' start typed, ' + evs[1].id + ' stop typed', timer: evs[0].id });
+    if (s.names.length) store.pref('who', ui.after.who.slice());
     ui.after = null; go('home'); sync();
   } catch (e) { ui.error = e.message; render(); }
 };
 function afterFields(s, a) {
-  const mach = (s.L.operations.find((o) => o.name === a.op) || {}).kind === 'machine';
-  const f = { job: a.job === undefined ? null : a.job, jobTyped: !!a.jobTyped, op: a.op, person: s.names.length && !mach ? a.person : undefined, note: a.note, remake: mach ? false : a.remake, at: new Date(ST.atLocal(a.day, a.clock, zone())).toISOString() };
+  const f = Object.assign(afterBase(s, a), { at: new Date(ST.atLocal(a.day, a.clock, zone())).toISOString() });
   const m = VIEW.parseLength(a.length); if (m !== null) f.minutes = m; else f.until = new Date(ST.atLocal(a.day, a.stopClock, zone())).toISOString();
   return f;
 }
@@ -506,10 +613,10 @@ acts['after-set-job'] = (d) => {
   if (d.typed) { const v = ($('pickjob').value || '').trim(); if (!v) return; a.job = v; a.jobTyped = true; } else if (d.none) { a.job = null; a.jobTyped = false; } else { a.job = d.name; a.jobTyped = !!d.known; }
   closeSheet(); render();
 };
-acts['after-pick-op'] = () => { const s = snap(); sheet('<h2>What</h2>' + s.L.operations.filter((o) => !o.out).map((o) => pickRow(o.name, 'after-set-op')).join('') + '<div class="small">A trip out of the shop is started and stopped as a trip.</div><button type="button" class="btn" data-act="close">Cancel</button>'); };
+acts['after-pick-op'] = () => { const s = snap(); sheet('<h2>What</h2>' + afterOps(s.L).map((o) => pickRow(o.name, 'after-set-op')).join('') + '<div class="small">A trip out of the shop is started and stopped as a trip. The CNC and Maintenance are timed live, on their own screens.</div><button type="button" class="btn" data-act="close">Cancel</button>'); };
 acts['after-set-op'] = (d) => { ui.after.op = d.name; closeSheet(); render(); };
-acts['after-pick-who'] = () => { const s = snap(); sheet('<h2>Who</h2>' + s.names.map((n) => pickRow(n, 'after-set-who')).join('') + '<button type="button" class="btn" data-act="close">Cancel</button>'); };
-acts['after-set-who'] = (d) => { ui.after.person = d.name; closeSheet(); render(); };
+acts['after-pick-who'] = () => whoSheet('Who', ui.after.who, 'after-set-who');
+acts['after-set-who'] = () => { ui.after.who = ui.picking.slice(); closeSheet(); render(); };
 acts['after-pick-day'] = () => sheet('<h2>Day</h2><label class="field"><span class="step">Day</span><input type="date" class="input" id="pickday" value="' + esc(ui.after.day) + '"></label><div class="two"><button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn go" data-act="after-set-day">Set</button></div>');
 acts['after-set-day'] = () => { const v = $('pickday').value; if (v) ui.after.day = v; closeSheet(); render(); };
 const pickClock = (title, id, val, act) => sheet('<h2>' + title + '</h2><label class="field"><span class="step">Time</span><input type="time" class="input" id="' + id + '" value="' + esc(val) + '"></label><div class="two"><button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn go" data-act="' + act + '">Set</button></div>');
@@ -519,39 +626,54 @@ acts['after-pick-stop'] = () => pickClock('Stopped', 'pickclock', ui.after.stopC
 acts['after-set-stop'] = () => { const v = $('pickclock').value; if (v) { ui.after.stopClock = v; ui.after.length = ''; } closeSheet(); render(); };
 acts['after-pick-length'] = () => sheet('<h2>How long</h2><label class="field"><span class="step">Like 2 h 30, 2:30 or 150 (minutes)</span><input type="text" class="input" id="picklen" inputmode="text" autocomplete="off" value="' + esc(ui.after.length) + '"></label><div class="two"><button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn go" data-act="after-set-length">Set</button></div>');
 acts['after-set-length'] = () => { const v = $('picklen').value; ui.after.length = v; if (String(v).trim()) ui.after.stopClock = ''; closeSheet(); render(); };
-acts.job = (d) => { ui.job = d.none ? { name: null, typed: false } : { name: d.name, typed: !!d.typed }; go('timed'); };
+acts.job = (d) => { ui.job = d.none ? { name: null, typed: false } : { name: d.name, typed: !!d.typed }; ui.search = ''; go('timed'); };       /* the search has done its work: the list is whole again next time */
 acts.op = (d) => {
   const s = snap(), op = s.L.operations.find((o) => o.name === d.name); if (!op) return;
   if (op.out) { ui.op = op.name; ui.trip = freshTrip(); go('trip'); return; }
-  if (op.kind === 'person') { ui.op = op.name; ui.form = fresh(); go('op'); return; }
-  /* a machine starts at once on the tap; one that is already running asks first (a second timer on the same machine is named for him to look at) */
-  const live = VIEW.runningNow(s.timers).find((t) => t.opKind === 'machine' && t.op.toLowerCase() === op.name.toLowerCase());
-  if (live) { ask(op.name + ' is already running (' + VIEW.jobWords(live.job) + ', ' + ST.showMinutes(live.minutes) + '). Start another timer for ' + VIEW.jobWords(ui.job.name) + '? The two would be named for you to look at.', 'Start another', 'machine-start', { name: op.name }, 'Not now'); return; }
-  startMachine(op.name);
+  /* no timer starts on the first tap, machines included (owner, 19 and 21 Nov 2026): every operation opens the Start screen; Maintenance asks for its machine and kind first */
+  ui.op = op.name; ui.form = fresh();
+  if (op.mode === 'maintenance') { ui.maint = { machine: null, work: null }; go('maint'); return; }
+  ui.maint = null; go('op');
 };
-acts['machine-start'] = (d) => { closeSheet(); startMachine(d.name); };
-function startMachine(name) {
-  const job = ui.job || { name: null, typed: false }, s = snap();
-  try { record(ST.startTimer(s.events, store.device, store.by(), s.L, { job: job.name, jobTyped: !!job.typed, op: name }, now())); ui.job = null; ui.search = ''; go('home'); sync(); }
-  catch (e) { ui.error = e.message; render(); }
-}
+/* a running task tapped on the home screen opens its card: the workers with their own Pause, the CNC's buttons, and the Start screen for another timer there */
+acts.open = (d) => {
+  const t = snap().timers.find((x) => x.id === d.id); if (!t) return;
+  ui.job = { name: t.job, typed: t.jobTyped }; ui.op = t.op; ui.form = fresh(); ui.maint = t.mode === 'maintenance' ? { machine: t.machine, work: t.work } : null;
+  go('op');
+};
+acts['m-machine'] = (d) => { ui.maint.machine = d.name; render(); };
+acts['m-work'] = (d) => { ui.maint.work = d.name; render(); };
+acts['m-next'] = () => go('op');
 acts.who = (d) => {
-  const s = snap(), st = VIEW.nameStates(s.names, s.timers, ui.job.name, ui.op).find((n) => n.name === d.name);
-  if (ui.form.who && ui.form.who.toLowerCase() === d.name.toLowerCase()) { ui.form.who = null; ui.form.stopOther = false; render(); return; }
-  if (st && st.state === 'busy') {
-    /* a name already on another timer: syntratime.js refuses the start and says where, and the screen asks first (owner, 19 Nov 2026, screen 3) */
-    try { ST.startTimer(s.events, store.device, store.by() || '?', s.L, { job: ui.job.name, jobTyped: !!ui.job.typed, op: ui.op, person: d.name }, now()); }
-    catch (e) { if (e.busy) { ask(e.message, 'Stop that timer and start this one', 'who-stop', { name: d.name }, 'Not now'); return; } }
-  }
-  ui.form.who = d.name; ui.form.stopOther = false; render();
+  const w = ui.form.who, i = w.findIndex((x) => x.toLowerCase() === d.name.toLowerCase()), names = snap().names;
+  if (i >= 0) w.splice(i, 1); else w.push(d.name);
+  w.sort((a, b) => names.indexOf(a) - names.indexOf(b));       /* named in the order of the list, whatever order they were tapped in */
+  render();
 };
-acts['who-stop'] = (d) => { closeSheet(); ui.form.who = d.name; ui.form.stopOther = true; render(); };
-acts.start = () => {
-  const s = snap(), f = ui.form;
-  attempt(() => {
-    record(ST.startTimer(s.events, store.device, store.by(), s.L, { job: ui.job.name, jobTyped: !!ui.job.typed, op: ui.op, person: s.names.length ? f.who : undefined, note: f.note, remake: f.remake, stopOther: f.stopOther }, now()));
-    ui.form = fresh();
-  });
+/* Start. A second timer on the same operation and job asks first (mockup 5), and what is chosen is done as one action by syntratime.js. */
+function startFields(s, second) {
+  const job = ui.job || { name: null, typed: false }, f = ui.form;
+  return Object.assign({ job: job.name, jobTyped: !!job.typed, op: ui.op, workers: s.names.length ? f.who : undefined, note: f.note, remake: f.remake }, ui.maint || {}, second ? { second } : {});
+}
+function secondSheet(s, ids) {
+  const first = s.timers.filter((t) => ids.includes(t.id)), t = first[0], many = first.length > 1, full = 'min-height:52px;font-size:16px;flex:none';
+  sheet('<p><b>' + esc(ui.op) + ' is already running here.</b></p><p class="small">' + esc(many ? first.length + ' timers: ' + first.map((x) => ST.whoOf(x)).join('; ') : VIEW.jobWords(t.job) + ' · ' + ST.whoOf(t) + ' · ' + ST.showMinutes(t.minutes)) + '. What would you like to do?</p>' +
+    '<button type="button" class="btn go" data-act="start" data-second="second" style="' + full + '">' + (many ? 'Start another timer' : 'Start a second timer') + '</button>' +
+    '<button type="button" class="btn" data-act="start" data-second="stop" style="' + full + '">' + (many ? 'Stop them, then start this one' : 'Stop the first, then start this one') + '</button>' +
+    '<button type="button" class="btn warn" data-act="start" data-second="cancel" style="' + full + '">' + (many ? 'Cancel them: they were started by mistake' : 'Cancel the first: it was started by mistake') + '</button>' +
+    '<button type="button" class="btn" data-act="close" style="' + full + ';color:var(--muted)">Not now</button>');
+}
+acts.start = (d) => {
+  const s = snap();
+  try {
+    ui.error = '';
+    record(ST.startTimer(s.events, store.device, store.by(), s.L, startFields(s, d && d.second), now()));
+    if (s.names.length) store.pref('who', ui.form.who.slice());
+    ui.form = fresh(); closeSheet(); render(); sync(); maybeAskNotify();
+  } catch (e) {
+    if (e.same && !(d && d.second)) { secondSheet(s, e.same); return; }
+    closeSheet(); ui.error = e.message; render();
+  }
 };
 acts.stop = (d) => {
   const s = snap(), t = s.timers.find((x) => x.id === d.id);
@@ -561,7 +683,28 @@ acts.stop = (d) => {
   }
   attempt(() => record(ST.stopTimer(s.events, store.device, store.by(), s.L, d.id, {}, now())));
 };
-acts['off-today'] = () => { const s = snap(); attempt(() => record(ST.checkOffToday(s.events, store.device, store.by(), s.L, 'shop', now()))); };
+/* Pause and Resume: the whole task, or one worker on it */
+const doTo = (fn) => (d) => { const s = snap(); attempt(() => record(fn(s, d))); };
+acts.pause = doTo((s, d) => ST.pauseTimer(s.events, store.device, store.by(), s.L, d.id, null, now()));
+acts.resume = doTo((s, d) => ST.resumeTimer(s.events, store.device, store.by(), s.L, d.id, null, now()));
+acts['w-pause'] = doTo((s, d) => ST.pauseTimer(s.events, store.device, store.by(), s.L, d.id, d.name, now()));
+acts['w-resume'] = doTo((s, d) => ST.resumeTimer(s.events, store.device, store.by(), s.L, d.id, d.name, now()));
+/* the CNC's two buttons: a tap on the one that is not running switches to it; the one running is already on */
+acts.cnc = (d) => { const s = snap(), t = s.timers.find((x) => x.id === d.id); if (!t || !t.cnc || t.cnc.now === d.to) return; attempt(() => record(ST.switchCnc(s.events, store.device, store.by(), s.L, d.id, d.to, now()))); };
+acts['cnc-undo'] = doTo((s, d) => ST.undoSwitch(s.events, store.device, store.by(), s.L, d.id, now()));
+/* the end-of-day check of this phone (mockup 9): On / Off, and its time. Turning it off asks first. */
+const eodSet = (change) => { const s = snap(); closeSheet(); attempt(() => record(ST.setEndOfDay(s.events, store.device, store.by(), change, now()))); };
+acts['eod-on'] = () => { const s = snap(); if (!ST.endOfDayOf(s.events, store.device, now()).on) eodSet({ on: true }); };
+acts['eod-off'] = () => {
+  const s = snap(), e = VIEW.endOfDay(s.events, store.device, now(), zone()); if (!e.on) return;
+  sheet('<p>Turn the end-of-day check off on this phone?</p><p class="small">Nothing will ask at ' + esc(e.clock) + '. A forgotten timer then runs until midnight asks. You can turn it on again here at any time.</p>' +
+    '<div class="two"><button type="button" class="btn" data-act="close">Keep it on</button><button type="button" class="btn warn" data-act="eod-off-yes">Turn it off</button></div>');
+};
+acts['eod-off-yes'] = () => eodSet({ on: false });
+acts['eod-time'] = () => { const s = snap();
+  sheet('<h2>End-of-day check</h2><label class="field"><span class="step">The time this phone asks "still going?"</span><input type="time" class="input" id="pickclock" value="' + esc(ST.endOfDayOf(s.events, store.device, now()).at) + '"></label>' +
+    '<p class="small">It is for the timers started on this phone. Midnight always asks, whatever is set here.</p><div class="two"><button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn go" data-act="eod-time-set">Set</button></div>'); };
+acts['eod-time-set'] = () => { const v = $('pickclock').value; if (!v) return; const s = snap(); if (ST.endOfDayOf(s.events, store.device, now()).at === v) { closeSheet(); return; } eodSet({ at: v }); };
 inputs.search = (v) => { ui.search = v; $('jobs').innerHTML = jobsMarkup(); };
 inputs.note = (v) => { ui.form.note = v; };
 inputs.remake = (v, el) => { ui.form.remake = el.checked; };
@@ -575,14 +718,13 @@ document.addEventListener('keydown', (ev) => {
 /* the time on a running timer moves by itself, with seconds, so it can be seen to be going (owner, 19 Nov 2026). The seconds are worked out from the timer's start, each second,
    without reading the diaries again; every 15 seconds the screen is looked at properly: a timer that has stopped (the end-of-day check) leaves the list */
 function tickSeconds() {
-  for (const el of document.querySelectorAll('[data-from]')) el.textContent = ST.showElapsed((now() - Number(el.dataset.from)) / 60000);
+  for (const el of document.querySelectorAll('[data-ms]')) el.textContent = ST.showElapsed((Number(el.dataset.ms) + now() - Number(el.dataset.at)) / 60000);
 }
 let beat = 0;
 function tick() {
   if (!$('sheet').hidden) return;
-  const s = snap(), a = document.activeElement, typing = a && a.matches && a.matches('input[type=text]');
-  if (ui.view === 'home' && !typing && (VIEW.runningNow(s.timers).length !== ui.runCount || VIEW.waiting(s.timers, zone(), ST.localDay(now(), zone())).rows.length !== ui.waitCount)) { render(); return; }
-  for (const el of document.querySelectorAll('[data-live]')) { const t = s.timers.find((x) => x.id === el.dataset.live); if (t) el.textContent = ST.showElapsed(t.minutes); }
+  const a = document.activeElement, typing = a && a.matches && a.matches('input[type=text],textarea');
+  if ((ui.view === 'home' || ui.view === 'op') && !typing) { render(); return; }      /* looked at properly: a timer the check has stopped leaves the list, and each worker's own minutes move on */
   if (ui.view === 'home') $('top').innerHTML = screens.home().top;
 }
 setInterval(() => { if (document.hidden) return; tickSeconds(); if (++beat % 15 === 0) tick(); }, 1000);
@@ -591,6 +733,33 @@ document.addEventListener('click', (ev) => {
   const f = acts[el.dataset.act]; if (f) { ev.preventDefault(); f(el.dataset, el, ev); }
 });
 document.addEventListener('input', (ev) => { const el = ev.target.closest('[data-input]'); if (el && inputs[el.dataset.input]) inputs[el.dataset.input](el.value, el); });
+
+/* the family's start-up screen (owner, 21 Nov 2026; mockup 10): the same screen, for the same length of time, as SyntraQuote's (src/ui.js): the mark drawn on inside a dial,
+   a line sweeping round it, the parts named one by one with a segment lit for each, then READY. A tap skips it; it stays still when the phone asks for less motion. */
+const SPLASH_MS = 4000, SPLASH_STEPS = ['Sign-in', 'Jobs', 'Operations', 'Names', 'Timers', 'Saved'];
+function splash() {
+  if ($('splash')) return;
+  try { if (localStorage.getItem('syntratime.splash') === 'off') return; } catch (e) { /* no storage: show it */ }
+  let ticks = ''; for (let i = 0; i < 72; i++) { const a = i * 5 * Math.PI / 180, r1 = 122, r2 = i % 6 ? 117 : 112; ticks += '<line x1="' + (130 + r1 * Math.sin(a)).toFixed(1) + '" y1="' + (130 - r1 * Math.cos(a)).toFixed(1) + '" x2="' + (130 + r2 * Math.sin(a)).toFixed(1) + '" y2="' + (130 - r2 * Math.cos(a)).toFixed(1) + '"/>'; }
+  const mk = '<svg viewBox="0 0 32 32" fill="none" stroke-linecap="round" aria-hidden="true"><path class="sp-draw" pathLength="1" d="M22.6 9.4A9 9 0 1 0 22.6 22.6" stroke="var(--mark)" stroke-width="2.6"/><path class="sp-draw" pathLength="1" d="M15.6 16H24.4" stroke="var(--mark-bar)" stroke-width="2"/><circle class="sp-pip" cx="24.4" cy="16" r="1.9" fill="var(--mark-bar)"/></svg>';
+  const el = document.createElement('div'); el.id = 'splash'; el.setAttribute('role', 'status');
+  el.innerHTML = '<i class="sp-c tl"></i><i class="sp-c tr"></i><i class="sp-c bl"></i><i class="sp-c br"></i><div class="sp-in"><div class="sp-dial"><svg viewBox="0 0 260 260" aria-hidden="true"><g class="sp-ticks">' + ticks + '</g><circle class="sp-ring" cx="130" cy="130" r="104"/><circle class="sp-arc" cx="130" cy="130" r="104" pathLength="100" transform="rotate(-90 130 130)"/></svg><span class="sp-mark">' + mk + '</span></div>'
+    + '<b>SyntraTime</b><em>Start it. Stop it. Know it.</em><div class="sp-st" id="splashSt"></div><div class="sp-seg">' + '<i></i>'.repeat(SPLASH_STEPS.length) + '</div></div>'
+    + '<div class="foot"><span>' + esc(VERSION.toUpperCase()) + '</span><span>Tap to skip</span><span></span></div>';
+  document.body.appendChild(el);
+  const st = el.querySelector('#splashSt'), seg = [...el.querySelectorAll('.sp-seg i')], still = matchMedia('(prefers-reduced-motion: reduce)').matches, T = [];
+  const say = (txt, ready) => { st.classList.remove('in'); void st.offsetWidth; st.textContent = txt; st.classList.toggle('ready', !!ready); st.classList.add('in'); };
+  if (still) { seg.forEach((x) => x.classList.add('on')); say('READY', true); el.classList.add('done'); }
+  else {
+    void el.getBoundingClientRect(); getComputedStyle(el.querySelector('.sp-arc')).strokeDashoffset;
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('go')));
+    const step = (SPLASH_MS - 900) / (SPLASH_STEPS.length + 1);
+    SPLASH_STEPS.forEach((n, i) => T.push(setTimeout(() => { if (el.isConnected) { say(n.toUpperCase()); seg[i].classList.add('on'); } }, 300 + i * step)));
+    T.push(setTimeout(() => { if (el.isConnected) say('READY', true); }, 300 + SPLASH_STEPS.length * step));
+  }
+  const gone = () => { T.forEach(clearTimeout); el.classList.add('out'); setTimeout(() => el.remove(), 380); el.removeEventListener('click', gone); };
+  T.push(setTimeout(gone, SPLASH_MS)); el.addEventListener('click', gone);
+}
 
 /* ---- who is signed in, and sending ---- */
 async function refreshAuth() {
@@ -618,6 +787,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) sync
 addEventListener('online', () => sync());
 addEventListener('storage', (e) => { if (e.key === 'syntratime.tokens') refreshAuth().then(render); });        /* a sign-in finished in the other window shows here at once */
 setInterval(() => { if (!document.hidden) sync(); }, 60000);
+setInterval(() => NOTIFY.refresh(), 60000);        /* the notifications are looked at once a minute, in front or behind, for as long as the phone keeps the page alive */
+document.addEventListener('visibilitychange', () => { if (!document.hidden) NOTIFY.drain().then(() => NOTIFY.refresh()); });
 
 (async () => {
   let back = null;
@@ -626,7 +797,9 @@ setInterval(() => { if (!document.hidden) sync(); }, 60000);
   await refreshAuth();
   render();
   if (back === null && !auth.signedIn && ms.maybeSilent()) return;       /* Microsoft is being tried by itself: the page comes back from it */
+  NOTIFY.init();
+  if (back === null) splash();                                           /* not on the way back from the sign-in: he has just seen it */
   sync();
 })();
-window.__time = { ST, store, ms, ui, auth, render, go, sync, now, tick, tickSeconds };
+window.__time = { ST, VIEW, store, ms, ui, auth, render, go, sync, now, tick, tickSeconds, snap, record, splash, NOTIFY };
 })();

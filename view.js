@@ -40,8 +40,10 @@ const jobKey = (job) => (job == null ? '\u0000' : key(job));
 /* the timers running now, in the order they started (a cancelled timer is never running) */
 const runningNow = (timers) => timers.filter((t) => t.running && !t.cancelled);
 const jobWords = (job) => (job == null ? ST.SHOP_NO_JOB : job);
-/* a running timer's second line on screen 1: the job, who (or "Machine"), and the vehicle on a trip: "Hillcrest kitchen · Sam · Truck" */
-const timerLine = (t) => [jobWords(t.job), t.opKind === 'machine' ? 'Machine' : t.person, t.vehicle].filter(Boolean).join(' \u00b7 ');
+/* a running timer's second line on screen 1: the job, who is working, and the vehicle on a trip: "Lubicon Lake Band · Pat, Sam", "Hillcrest kitchen · Sam · Truck" */
+const timerLine = (t) => [jobWords(t.job), ST.whoOf(t), t.vehicle].filter(Boolean).join(' \u00b7 ');
+/* names as a sentence says them: "Pat", "Pat and Sam", "Dave, Pat and Sam" (the Start button: "Start: Pat and Sam") */
+const namesWords = (list) => (list.length > 1 ? list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1] : list[0] || '');
 /* the jobs to pick from, last used first (screen 1): the jobs SyntraQuote sent and every job named on a timer (a typed one too), each with how many of its timers are running;
    a job never used comes after the used ones, A to Z */
 function jobChoices(timers, L) {
@@ -55,19 +57,18 @@ const filterJobs = (choices, q) => (key(q) ? choices.filter((c) => key(c.job).in
 const newJob = (choices, q) => { const t = String(q == null ? '' : q).trim(); return t && !choices.some((c) => key(c.job) === key(t)) ? t : null; };
 /* the operations in three groups, each in the order of the list (so each keeps its place on screen 2): people in the shop, machines in the shop, out of the shop */
 const operationGroups = (L) => ({ people: L.operations.filter((o) => o.kind === 'person' && !o.out), machines: L.operations.filter((o) => o.kind === 'machine'), out: L.operations.filter((o) => o.out) });
-/* the running timers of one job and one operation: their count and who (screen 2's green edge) */
+/* the open timers of one job and one operation: their count and who is on them (screen 2's green edge, and the cards on screen 3). A paused timer is still open. */
 function opStatus(timers, job, op) {
   const here = runningNow(timers).filter((t) => jobKey(t.job) === jobKey(job) && key(t.op) === key(op));
-  return { running: here.length, names: here.map((t) => t.person).filter(Boolean), timers: here };
+  return { running: here.length, names: [...new Set(here.flatMap((t) => t.workers.map((w) => w.name)))], timers: here };
 }
-/* the names to pick from on screen 3, each free, here (already on a timer of this job and operation: dimmed) or busy (on another timer: it says where, and picking it asks first) */
-function nameStates(names, timers, job, op) {
+/* the names to pick from when a trip leaves (screen 5): free, or busy (on an open timer, and not paused on it: it says where, and picking the name asks first). In the shop
+   nothing is asked: timers ignore each other (owner, 20 Nov 2026). */
+function nameStates(names, timers) {
   const live = runningNow(timers);
   return names.map((name) => {
-    const t = live.find((x) => x.person && key(x.person) === key(name));
-    if (!t) return { name, state: 'free', where: '' };
-    if (jobKey(t.job) === jobKey(job) && key(t.op) === key(op)) return { name, state: 'here', where: 'on a timer here' };
-    return { name, state: 'busy', where: t.out ? 'out on ' + t.op : 'on ' + t.op };
+    const t = live.find((x) => x.workers.some((w) => key(w.name) === key(name) && !w.paused));
+    return t ? { name, state: 'busy', where: t.out ? 'out on ' + t.op : 'on ' + t.op } : { name, state: 'free', where: '' };
   });
 }
 /* a length of time as typed: "2 h 30", "2h30min", "2:30", "90 min", "1.5 h", "150" (minutes). Gives minutes, or null when it cannot be read. Reading what was typed is all it does: the stop is worked out by syntratime.js. */
@@ -81,24 +82,38 @@ function parseLength(text) {
 }
 /* a number of kilometres as the screens say it: 184 326 (the space between the thousands does not break the line) */
 const showKm = (n) => String(Math.round(n * 10) / 10).replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0');
-/* the end-of-day box (screen 4): the timers in the shop that the check stopped because nobody answered "still going?", and that he has not yet answered or confirmed.
-   The engine has already stopped them at the check's time; the box asks him to let each run on (still going) or to keep the stop (stop at that time). */
+/* the end-of-day box (screen 4): the timers in the shop that a check stopped because nobody answered "still going?", and that he has not yet answered or confirmed.
+   The engine has already stopped them, at the check's time or at the moment they were paused; the box asks him to let each run on (still going) or to keep the stop. */
 function waiting(timers, zone, today) {
   const rows = timers.filter((t) => !t.cancelled && !t.out && t.stopHow === 'check' && t.toCheck && t.why.some((w) => w.why === 'check')).map((t) => {
-    const midnight = ST.localClock(t.stop, zone) === '00:00', day = ST.localDay(t.stop, zone), clock = midnight ? 'midnight' : ST.showClock(t.stop, zone);
-    return { id: t.id, op: t.op, person: t.person, job: t.job, minutes: t.minutes, stop: t.stop, clock, day, late: day !== today, midnight };
+    const midnight = ST.localClock(t.checkAt, zone) === '00:00', day = ST.localDay(t.stop, zone), clock = midnight ? 'midnight' : ST.showClock(t.checkAt, zone), paused = t.stop !== t.checkAt;
+    return { id: t.id, op: t.op, who: ST.whoOf(t), job: t.job, minutes: t.minutes, stop: t.stop, check: t.checkAt, clock, stopClock: paused ? ST.showClock(t.stop, zone) : clock, paused, day, late: day !== today, midnight };
   });
-  const kinds = [...new Set(rows.map((r) => r.stop))];
+  const kinds = [...new Set(rows.map((r) => r.check))];
   const heading = !rows.length ? '' : kinds.length === 1 ? (rows[0].midnight ? 'Midnight' : rows[0].clock) + ': still going?' : 'Still going?';
   return { rows, heading };
 }
-/* the end-of-day check line under the running timers (screen 1): on (with the time and the button), off for today only, or switched off */
-function endOfDay(events, L, now) {
-  const zone = L.settings.zone, day = ST.localDay(now, zone), c = ST.checksOn(L, day).shop;
-  if (!c.on || !c.at) return { state: 'off', text: 'The end-of-day check is switched off.' };
-  if (events.some((e) => e.type === 'checkOff' && e.side === 'shop' && e.day === day)) return { state: 'today', text: 'The end-of-day check is off for today. It is back on tomorrow.' };
-  return { state: 'on', text: 'End-of-day check at ' + ST.showClock(ST.atLocal(day, c.at, zone), zone) };
+/* the end-of-day check of this phone, for the line under the running timers (owner, 21 Nov 2026: its switch and its time belong to the phone) */
+function endOfDay(events, device, now, zone) {
+  const s = ST.endOfDayOf(events, device, now), clock = ST.showClock(ST.atLocal(ST.localDay(now, zone), s.at, zone), zone);
+  return { on: s.on, at: s.at, clock, text: s.on ? 'asks at ' + clock : 'off: nothing asks until midnight' };
+}
+/* one notification for each open timer (owner, 21 Nov 2026; mockup 8): a shop task, or a trip (its people together). What each says is worked out here, so it is the same
+   on the page and in the test: the operation and the job; "Running 1 h 02 min", who, and the last check-in; or, paused, since when (and no Check in button). */
+function notices(timers, zone) {
+  const out = [], trips = new Set(), two = (n) => (n < 10 ? '0' : '') + n;
+  const ran = (min) => { const all = Math.max(0, Math.floor(min)), h = Math.floor(all / 60), m = all % 60; return h ? h + ' h ' + two(m) + ' min' : m + ' min'; };
+  for (const t of runningNow(timers)) {
+    if (t.trip) { if (trips.has(t.trip)) continue; trips.add(t.trip); }
+    const group = t.trip ? runningNow(timers).filter((x) => x.trip === t.trip) : [t], who = group.map((x) => ST.whoOf(x)).join(', ');
+    const last = group.map((x) => x.checkin).filter(Boolean).sort().pop() || null;
+    const title = t.op + ' \u00b7 ' + jobWords(t.job), quietFrom = last || group.map((x) => x.start).sort()[0];       /* the hour to the next ring counts from the last check-in, or the start */
+    if (t.paused && !t.trip) out.push({ tag: 'timer-' + t.id, timers: group.map((x) => x.id), title, who, quietFrom, paused: true, body: 'Paused since ' + ST.showClock(t.pausedAt, zone) + ' \u00b7 ' + who + '\nTap to open SyntraTime' });
+    else out.push({ tag: 'timer-' + t.id, timers: group.map((x) => x.id), title, who, quietFrom, paused: false,
+      body: 'Running ' + ran(Math.max(...group.map((x) => x.minutes))) + ' \u00b7 ' + who + '\nStill working on it?' + (last ? ' Last check-in ' + ST.showClock(last, zone) : '') });
+  }
+  return out;
 }
 
-return { clockSeconds, dayName, logDays, runningNow, jobWords, timerLine, jobChoices, filterJobs, newJob, operationGroups, opStatus, nameStates, endOfDay, waiting, showKm, parseLength };
+return { clockSeconds, dayName, logDays, runningNow, jobWords, timerLine, namesWords, jobChoices, filterJobs, newJob, operationGroups, opStatus, nameStates, endOfDay, waiting, notices, showKm, parseLength };
 });
