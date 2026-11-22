@@ -3,7 +3,7 @@
    markup; a tap is a data-act that names the function that handles it. */
 (function () {
 'use strict';
-const VERSION = 'Version 22 Nov, 4';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
+const VERSION = 'Version 22 Nov, 5';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
 const ms = MS.create({ clientId: CLIENT_ID, note: (text, more) => store.note(text, more) });
 const store = STORE.createStore({ storage: localStorage, drive: ms.drive });
 const $ = (id) => document.getElementById(id);
@@ -839,6 +839,9 @@ async function sync() {
   } finally { syncing = false; }
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) sync(); });
+/* the page is exactly as high as the phone shows it, so the bottom bar is never under the phone's own buttons or toolbar: 100dvh is taller than what is seen on some phones (owner, 22 Nov 2026) */
+const fitHeight = () => document.documentElement.style.setProperty('--vh', Math.round((window.visualViewport && window.visualViewport.height) || innerHeight) + 'px');
+fitHeight(); addEventListener('resize', fitHeight); addEventListener('orientationchange', fitHeight); if (window.visualViewport) window.visualViewport.addEventListener('resize', fitHeight);
 addEventListener('online', () => sync());
 addEventListener('storage', (e) => { if (e.key === 'syntratime.tokens') refreshAuth().then(render); });        /* a sign-in finished in the other window shows here at once */
 setInterval(() => { if (!document.hidden) sync(); }, 60000);

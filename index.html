@@ -21,7 +21,7 @@
 :root{--bg:#0e1317;--card:#141b21;--field:#0a0f13;--fg:#d8e1e8;--muted:#8594a1;--rule:#25303a;--mark:#f0b24a;--good:#5fd08a;--bad:#ff7a6b;--btn:#4ea2ff;--btn-ink:#06121e;--mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:var(--bg);color:var(--fg);font:17px/1.3 'IBM Plex Sans Condensed','Roboto Condensed','Arial Narrow',sans-serif-condensed,system-ui,sans-serif;-webkit-text-size-adjust:100%}
-#app{display:flex;flex-direction:column;height:100dvh;max-width:560px;margin:0 auto}
+#app{display:flex;flex-direction:column;height:var(--vh,100dvh);max-width:560px;margin:0 auto}
 .top{display:flex;align-items:center;gap:10px;padding:max(16px,env(safe-area-inset-top)) 16px 10px}
 .top .mark{flex:none}
 .top .name{display:flex;flex-direction:column;flex:1;min-width:0}
