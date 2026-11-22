@@ -50,8 +50,8 @@ button{font:inherit;color:var(--fg);cursor:pointer}
 .bar{flex:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:10px 16px max(14px,env(safe-area-inset-bottom));border-top:1px solid var(--rule);background:var(--card)}
 .bar.two{grid-template-columns:repeat(2,minmax(0,1fr))}
 /* the bottom bar of the timers screens (Help, Add time after, What happened): 30% lower than a normal button (48 px to 34 px), and it never scrolls away: only the body above it moves (owner, 22 Nov 2026) */
-.bar.low{padding:0 16px max(0px,env(safe-area-inset-bottom));border-top:0;gap:8px}
-.bar.low .btn{min-height:34px;font-size:13px;padding:0 4px;white-space:nowrap}
+.bar.low{padding:0 16px max(0px,env(safe-area-inset-bottom));border-top:0;gap:8px;background:transparent}
+.bar.low .btn{min-height:34px;font-size:13px;padding:0 4px;white-space:nowrap;border-width:1.5px}
 .bar .wide{grid-column:1/-1}.bar .note{grid-column:1/-1;font-size:13px;color:var(--muted);text-align:center}
 .log{display:grid;grid-template-columns:78px minmax(0,1fr);column-gap:10px;row-gap:7px;font-size:14.5px}
 .log .t{font-family:var(--mono);font-size:12.5px;color:var(--muted);padding-top:2px}

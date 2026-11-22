@@ -3,7 +3,7 @@
    markup; a tap is a data-act that names the function that handles it. */
 (function () {
 'use strict';
-const VERSION = 'Version 22 Nov, 6';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
+const VERSION = 'Version 22 Nov, 7';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
 const ms = MS.create({ clientId: CLIENT_ID, note: (text, more) => store.note(text, more) });
 const store = STORE.createStore({ storage: localStorage, drive: ms.drive });
 const $ = (id) => document.getElementById(id);
