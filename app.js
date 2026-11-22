@@ -3,7 +3,7 @@
    markup; a tap is a data-act that names the function that handles it. */
 (function () {
 'use strict';
-const VERSION = 'Version 22 Nov, 3';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
+const VERSION = 'Version 22 Nov, 4';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
 const ms = MS.create({ clientId: CLIENT_ID, note: (text, more) => store.note(text, more) });
 const store = STORE.createStore({ storage: localStorage, drive: ms.drive });
 const $ = (id) => document.getElementById(id);
@@ -94,7 +94,7 @@ function attempt(fn) {
 const errorBox = () => (ui.error ? '<div class="note-error"><div>' + esc(ui.error) + '</div>' + (/^Sign in first/.test(ui.error) ? '<button type="button" class="btn" data-act="go" data-to="what">Sign in</button>' : '') + '</div>' : '');
 const mainBar = () => '<button type="button" class="btn" data-act="help">Help</button>' + (screens.after ? '<button type="button" class="btn" data-act="go" data-to="after">Add time after</button>' : '') +
   '<button type="button" class="btn" data-act="go" data-to="what">What happened</button>';
-const barClass = () => (screens.after ? '' : 'two');
+const barClass = () => (screens.after ? 'low' : 'low two');
 
 /* a time that moves by itself: the minutes counted so far, and the moment they were counted, so each second adds to it without reading the diaries again. A paused timer stands still. */
 const live = (minutes, style) => '<span class="time" data-ms="' + Math.round(minutes * 60000) + '" data-at="' + now() + '"' + (style ? ' style="' + style + '"' : '') + '>' + esc(ST.showElapsed(minutes)) + '</span>';
