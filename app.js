@@ -3,7 +3,7 @@
    markup; a tap is a data-act that names the function that handles it. */
 (function () {
 'use strict';
-const VERSION = 'Version 22 Nov, 2';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
+const VERSION = 'Version 22 Nov, 3';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
 const ms = MS.create({ clientId: CLIENT_ID, note: (text, more) => store.note(text, more) });
 const store = STORE.createStore({ storage: localStorage, drive: ms.drive });
 const $ = (id) => document.getElementById(id);
@@ -319,7 +319,9 @@ screens.after = () => {
   const fact = (label, value, act, how, missing) => '<div class="fact"><div class="fl">' + label + '</div><div class="fv grow">' + (how ? '<span class="clk">' + esc(value) + '</span><span class="how">' + esc(how) + '</span>' : missing ? '<span class="small">' + esc(value) + '</span>' : esc(value)) + '</div>' +
     (act ? '<button type="button" class="btn" data-act="' + act + '" style="min-height:44px;min-width:92px;font-size:15px">' + (missing ? 'Pick' : 'Change') + '</button>' : '') + '</div>';
   const minutes = VIEW.parseLength(a.length), who = s.names.length ? VIEW.namesWords(a.who) : (store.by() || 'you');
-  const stopShown = tr.stop ? ST.showClock(tr.stop, zone()) : null;
+  /* Stopped is worked out as soon as Started and How long (or a typed Stopped) are known: it is only a sum, so it does not wait for the job, what and who to be picked (owner's hand test 2, 22 Nov 2026) */
+  const startMs = a.clock ? new Date(ST.atLocal(a.day, a.clock, zone())).getTime() : null, stopMs = a.stopClock ? new Date(ST.atLocal(a.day, a.stopClock, zone())).getTime() : null;
+  const stopShown = startMs !== null && minutes !== null ? ST.showClock(new Date(startMs + minutes * 60000).toISOString(), zone()) : (stopMs !== null ? ST.showClock(new Date(stopMs).toISOString(), zone()) : null);
   const what = tr.T && tr.ready ? ST.showMinutes(tr.T.minutes) : null;
   return {
     top: '<button type="button" class="back" data-act="go" data-to="home" aria-label="Back without adding">' + BACK + '<span>Back</span></button><div class="name"><div class="title" style="font-size:20px">Add time after</div><div class="sub">For work nobody timed</div></div>',
