@@ -3,7 +3,7 @@
    markup; a tap is a data-act that names the function that handles it. */
 (function () {
 'use strict';
-const VERSION = 'Version 22 Nov, 1';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
+const VERSION = 'Version 22 Nov, 2';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
 const ms = MS.create({ clientId: CLIENT_ID, note: (text, more) => store.note(text, more) });
 const store = STORE.createStore({ storage: localStorage, drive: ms.drive });
 const $ = (id) => document.getElementById(id);
@@ -664,15 +664,19 @@ acts['after-pick-op'] = () => { const s = snap(); sheet('<h2>What</h2>' + afterO
 acts['after-set-op'] = (d) => { ui.after.op = d.name; closeSheet(); render(); };
 acts['after-pick-who'] = () => whoSheet('Who', ui.after.who, 'after-set-who');
 acts['after-set-who'] = () => { ui.after.who = ui.picking.slice(); closeSheet(); render(); };
-acts['after-pick-day'] = () => sheet('<h2>Day</h2><label class="field"><span class="step">Day</span><input type="date" class="input" id="pickday" value="' + esc(ui.after.day) + '"></label><div class="two"><button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn go" data-act="after-set-day">Set</button></div>');
-acts['after-set-day'] = () => { const v = $('pickday').value; if (v) ui.after.day = v; closeSheet(); render(); };
-const pickClock = (title, id, val, act) => sheet('<h2>' + title + '</h2><label class="field"><span class="step">Time</span><input type="time" class="input" id="' + id + '" value="' + esc(val) + '"></label><div class="two"><button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn go" data-act="' + act + '">Set</button></div>');
-acts['after-pick-clock'] = () => pickClock('Started', 'pickclock', ui.after.clock || '08:00', 'after-set-clock');
-acts['after-set-clock'] = () => { const v = $('pickclock').value; if (v) ui.after.clock = v; closeSheet(); render(); };
-acts['after-pick-stop'] = () => pickClock('Stopped', 'pickclock', ui.after.stopClock || '12:00', 'after-set-stop');
-acts['after-set-stop'] = () => { const v = $('pickclock').value; if (v) { ui.after.stopClock = v; ui.after.length = ''; } closeSheet(); render(); };
-acts['after-pick-length'] = () => sheet('<h2>How long</h2><label class="field"><span class="step">Like 2 h 30, 2:30 or 150 (minutes)</span><input type="text" class="input" id="picklen" inputmode="text" autocomplete="off" value="' + esc(ui.after.length) + '"></label><div class="two"><button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn go" data-act="after-set-length">Set</button></div>');
-acts['after-set-length'] = () => { const v = $('picklen').value; ui.after.length = v; if (String(v).trim()) ui.after.stopClock = ''; closeSheet(); render(); };
+/* Day, Started, Stopped and How long are picked on the wheel (wheel.js; owner, 22 Nov 2026): the same three columns for each, a bar that stays and numbers that move under it */
+function wheelSheet(title, kind, value, act) {
+  sheet('<h2>' + esc(title) + '</h2><div id="wheelhost"></div><div class="two"><button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn go" data-act="' + act + '">Set</button></div>');
+  ui.wheel = Wheel[kind]($('wheelhost'), value);
+}
+acts['after-pick-day'] = () => wheelSheet('Day', 'date', ui.after.day, 'after-set-day');
+acts['after-set-day'] = () => { const v = ui.wheel && ui.wheel.value(); if (v) ui.after.day = v; closeSheet(); render(); };
+acts['after-pick-clock'] = () => wheelSheet('Started', 'clock', ui.after.clock || '08:00', 'after-set-clock');
+acts['after-set-clock'] = () => { const v = ui.wheel && ui.wheel.value(); if (v) ui.after.clock = v; closeSheet(); render(); };
+acts['after-pick-stop'] = () => wheelSheet('Stopped', 'clock', ui.after.stopClock || '12:00', 'after-set-stop');
+acts['after-set-stop'] = () => { const v = ui.wheel && ui.wheel.value(); if (v) { ui.after.stopClock = v; ui.after.length = ''; } closeSheet(); render(); };
+acts['after-pick-length'] = () => wheelSheet('How long', 'length', VIEW.parseLength(ui.after.length) || 60, 'after-set-length');
+acts['after-set-length'] = () => { const m = ui.wheel ? ui.wheel.value() : 0; ui.after.length = m > 0 ? String(m) : ''; if (m > 0) ui.after.stopClock = ''; closeSheet(); render(); };
 acts.job = (d) => { ui.job = d.none ? { name: null, typed: false } : { name: d.name, typed: !!d.typed }; ui.search = ''; go('timed'); };       /* the search has done its work: the list is whole again next time */
 acts.op = (d) => {
   const s = snap(), op = s.L.operations.find((o) => o.name === d.name); if (!op) return;
