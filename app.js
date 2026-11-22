@@ -3,7 +3,7 @@
    markup; a tap is a data-act that names the function that handles it. */
 (function () {
 'use strict';
-const VERSION = 'Version 21 Nov, 2';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
+const VERSION = 'Version 22 Nov, 1';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
 const ms = MS.create({ clientId: CLIENT_ID, note: (text, more) => store.note(text, more) });
 const store = STORE.createStore({ storage: localStorage, drive: ms.drive });
 const $ = (id) => document.getElementById(id);
@@ -412,6 +412,7 @@ screens.op = () => {
   const s = snap(), job = ui.job || { name: null }, f = ui.form, here = VIEW.opStatus(s.timers, job.name, ui.op).timers, m = ui.maint;
   const chip = (n) => { const on = f.who.some((x) => x.toLowerCase() === n.toLowerCase());
     return '<button type="button" class="opbtn' + (on ? ' chosen" aria-pressed="true' : '') + '" data-act="who" data-name="' + esc(n) + '">' + (on ? CHK : '') + '<span>' + esc(n) + '</span></button>'; };
+  const oneSaw = ui.op === ST.LABELS_STARTER && !m && here.length > 0;      /* Beam saw cutting runs one timer at a time (owner, 22 Nov 2026): while it runs, its screen is the card alone */
   const way = ST.labelsWay(s.L, ui.op), alone = !s.names.length, me = store.by(), ready = alone || f.who.length > 0, labelled = !way || typeof f.labels === 'boolean';
   const stepNo = (n) => String(n - (alone ? 1 : 0));      /* alone, the names step is not asked */
   const labelsBox = !way ? '' : '<div style="display:flex;flex-direction:column;gap:6px;padding-top:4px"><div class="step">' + stepNo(2) + '. ' + (way === 'sheets' ? 'Labels put on while unloading?' : 'Labels put on the parts?') + '</div>' + labelSeg(f.labels, false, 'start-labels', '', true) +
@@ -419,13 +420,13 @@ screens.op = () => {
   return {
     top: '<button type="button" class="back" data-act="go" data-to="' + (m ? 'maint' : 'timed') + '" aria-label="Back">' + BACK + '<span>Back</span></button><div class="name"><div class="title" style="font-size:20px">' + esc(ui.op) + '</div><div class="sub">' + esc(VIEW.jobWords(job.name) + (m ? ' · ' + m.machine + ' · ' + m.work : '')) + '</div></div>',
     body: errorBox() + '<div class="section"><div class="label">Running here: ' + here.length + '</div>' + (here.length ? '<div class="cardgrid one">' + here.map(taskCard).join('') + '</div>' : '<div class="small">Nothing is running here yet.</div>') + '</div>' +
-      '<div class="section" style="padding-top:12px"><div class="label">Add a timer</div>' +
+      (oneSaw ? '<div class="section small" style="padding-top:12px">One Beam saw cutting timer at a time. To start another, stop this one first.</div>' : '<div class="section" style="padding-top:12px"><div class="label">Add a timer</div>' +
       (alone ? '<div class="step">The timer is in your name' + (me ? ' (' + esc(me) + ')' : '') + '. Names to pick from can be added with Add / remove a person.</div>'
         : '<div class="step">1. Who is working? Pick one or more</div><div class="cardgrid">' + s.names.map(chip).join('') + '</div>') +
       '<button type="button" class="btn" data-act="go" data-to="people" data-from="op" style="min-height:44px;font-size:15px">Add / remove a person</button>' +
       labelsBox + '<label class="field" style="padding-top:4px"><span class="step">' + stepNo(way ? 3 : 2) + '. A note on what it is (you may leave it empty)</span><input type="text" class="input" data-input="note" autocomplete="off" value="' + esc(f.note) + '"></label>' +
       '<label class="check"><input type="checkbox" data-input="remake"' + (f.remake ? ' checked' : '') + '><span>Remake: redoing work already done</span></label>' +
-      '<button type="button" class="btn go" data-act="start"' + (ready && labelled ? '' : ' disabled') + '>' + (!ready ? 'Pick who is working' : !labelled ? 'Pick Labels: On or Off' : alone ? 'Start the timer' : 'Start: ' + esc(VIEW.namesWords(f.who))) + '</button></div>',
+      '<button type="button" class="btn go" data-act="start"' + (ready && labelled ? '' : ' disabled') + '>' + (!ready ? 'Pick who is working' : !labelled ? 'Pick Labels: On or Off' : alone ? 'Start the timer' : 'Start: ' + esc(VIEW.namesWords(f.who))) + '</button></div>'),
     bar: mainBar(), barClass: barClass()
   };
 };
