@@ -20,7 +20,7 @@
 <style>
 :root{--bg:#0e1317;--card:#141b21;--field:#0a0f13;--fg:#d8e1e8;--muted:#8594a1;--rule:#25303a;--mark:#f0b24a;--good:#5fd08a;--bad:#ff7a6b;--btn:#4ea2ff;--btn-ink:#06121e;--mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:var(--bg);color:var(--fg);font:17px/1.3 'IBM Plex Sans Condensed','Roboto Condensed','Arial Narrow',sans-serif-condensed,system-ui,sans-serif;-webkit-text-size-adjust:100%}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:17px/1.3 'IBM Plex Sans Condensed','Roboto Condensed','Arial Narrow',sans-serif-condensed,system-ui,sans-serif;-webkit-text-size-adjust:100%}
 #app{display:flex;flex-direction:column;height:var(--vh,100dvh);max-width:560px;margin:0 auto}
 .top{display:flex;align-items:center;gap:10px;padding:max(16px,env(safe-area-inset-top)) 16px 10px}
 .top .mark{flex:none}
@@ -50,7 +50,8 @@ button{font:inherit;color:var(--fg);cursor:pointer}
 .bar{flex:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:10px 16px max(14px,env(safe-area-inset-bottom));border-top:1px solid var(--rule);background:var(--card)}
 .bar.two{grid-template-columns:repeat(2,minmax(0,1fr))}
 /* the bottom bar of the timers screens (Help, Add time after, What happened): 30% lower than a normal button (48 px to 34 px), and it never scrolls away: only the body above it moves (owner, 22 Nov 2026) */
-.bar.low .btn{min-height:34px;font-size:14px;padding:0 6px;white-space:nowrap}
+.bar.low{padding:0 16px max(0px,env(safe-area-inset-bottom));border-top:0;gap:8px}
+.bar.low .btn{min-height:34px;font-size:13px;padding:0 4px;white-space:nowrap}
 .bar .wide{grid-column:1/-1}.bar .note{grid-column:1/-1;font-size:13px;color:var(--muted);text-align:center}
 .log{display:grid;grid-template-columns:78px minmax(0,1fr);column-gap:10px;row-gap:7px;font-size:14.5px}
 .log .t{font-family:var(--mono);font-size:12.5px;color:var(--muted);padding-top:2px}
