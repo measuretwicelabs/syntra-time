@@ -3,7 +3,7 @@
    markup; a tap is a data-act that names the function that handles it. */
 (function () {
 'use strict';
-const VERSION = 'Version 21 Nov, 1';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
+const VERSION = 'Version 21 Nov, 2';             /* shown at the bottom of What happened, so it is plain which copy the phone has; the number goes up with each change to the page */
 const ms = MS.create({ clientId: CLIENT_ID, note: (text, more) => store.note(text, more) });
 const store = STORE.createStore({ storage: localStorage, drive: ms.drive });
 const $ = (id) => document.getElementById(id);
@@ -80,8 +80,8 @@ function record(evs) {
 }
 /* the Start screen comes filled in with the worker picked last time (owner, 21 Nov 2026), when that name is still on the list */
 function lastWho() { const names = ST.namesNow(store.events(), store.lists()), last = store.pref('who') || []; return last.filter((n) => names.some((x) => x.toLowerCase() === String(n).toLowerCase())); }
-const fresh = () => ({ who: lastWho(), note: '', remake: false });
-const freshAfter = () => ({ job: undefined, jobTyped: false, op: null, who: lastWho(), day: ST.localDay(now(), zone()), clock: '', length: '', stopClock: '', note: '', remake: false });
+const fresh = () => ({ who: lastWho(), note: '', remake: false, labels: null });
+const freshAfter = () => ({ job: undefined, jobTyped: false, op: null, who: lastWho(), day: ST.localDay(now(), zone()), clock: '', length: '', stopClock: '', note: '', remake: false, labels: null });
 const freshTrip = () => ({ people: [], driver: null, vehicle: null, odo: '', note: '', stopOther: false });
 /* a typed odometer reading as a number: spaces and commas between the thousands are allowed; anything else goes to syntratime.js, which says it is not a number */
 const odoValue = (txt) => { const t = String(txt || '').replace(/[\s,\u00a0\u202f]/g, ''); return t === '' ? '' : /^\d+(\.\d+)?$/.test(t) ? Number(t) : t; };
@@ -249,6 +249,15 @@ function whenWords(iso, how, day0) {
   const d = ST.localDay(iso, zone()), what = how === 'check' ? 'by the end-of-day check' : how === 'typed' ? 'typed' : 'tapped';
   return (d !== day0 ? VIEW.dayName(d) + ', ' : '') + ST.showClock(iso, zone()) + '|' + what;
 }
+/* Correct this timer: Labels after Who. Beam saw cutting says which and that it was set at the start (no Change); the CNC says on how many sheets, with Change once it is stopped */
+function labelsFact(T) {
+  const b = T.labels; if (!b) return '';
+  const words = ST.labelsWords(T), value = words.charAt(0).toUpperCase() + words.slice(1);
+  const can = b.kind === 'sheets' && !T.running && b.of > 0;
+  const how = b.kind === 'timer' ? 'set at the start' : T.running ? 'change it on the timer' : '';
+  return '<div class="fact"><div class="fl">Labels</div><div class="fv grow">' + esc(value) + (how ? '<span class="how">' + esc(how) + '</span>' : '') + '</div>' +
+    (can ? '<button type="button" class="btn" data-act="timer-pick-labels" style="min-height:44px;min-width:92px;font-size:15px">Change</button>' : '') + '</div>';
+}
 screens.timer = () => {
   const s = snap(), e = ui.edit, base = timerNow(s, e.id);
   if (!base) { ui.edit = null; ui.view = 'home'; return screens.home(); }
@@ -272,7 +281,7 @@ screens.timer = () => {
     body: errorBox() + (problem ? '<div class="note-error"><div>' + esc(problem) + '</div></div>' : '') + '<div class="section">' + (T.cancelled ? '<div class="alert"><div class="label" style="color:var(--mark);font-size:15px">Started by mistake</div><div class="small" style="color:var(--fg)">Kept and shown, and not counted.</div></div>' : why) +
       '<div class="facts">' + fact('Job', VIEW.jobWords(T.job), 'timer-pick-job') + fact('What', T.op, T.mode ? '' : 'timer-pick-op') +
       (T.mode === 'maintenance' ? fact('Machine', T.machine, 'timer-pick-machine') + fact('Kind', T.work, 'timer-pick-work') : '') +
-      fact('Who', who, !s.names.length ? '' : T.trip ? 'timer-pick-who' : 'timer-pick-workers') +
+      fact('Who', who, !s.names.length ? '' : T.trip ? 'timer-pick-who' : 'timer-pick-workers') + labelsFact(T) +
       fact('Started', startW[0], 'timer-pick-start', startW[1]) + fact('Stopped', stopW[0], T.running ? '' : 'timer-pick-stop', T.running ? '' : stopW[1]) +
       (driver ? fact('Odometer leaving', T.odoOut === null ? 'not filled in' : VIEW.showKm(T.odoOut) + ' km', 'timer-pick-odoOut') + fact('Odometer back', T.odoBack === null ? 'not filled in' : VIEW.showKm(T.odoBack) + ' km', 'timer-pick-odoBack') : '') + '</div>' +
       '<div class="bigrow" style="margin-top:8px"><span class="grow small" style="font-size:16px">Time</span><span class="time" style="font-size:19px">' + esc(ST.showMinutes(T.minutes)) + '</span></div>' +
@@ -289,7 +298,7 @@ screens.timer = () => {
 /* time typed in afterwards is for the plain operations in the shop: a trip is started and stopped as a trip, and the CNC and Maintenance are timed live on their own screens */
 const afterOps = (L) => L.operations.filter((o) => !o.out && !o.mode);
 function afterBase(s, a) {
-  return { job: a.job === undefined ? null : a.job, jobTyped: !!a.jobTyped, op: a.op, workers: s.names.length ? a.who : undefined, note: a.note, remake: a.remake };
+  return Object.assign({ job: a.job === undefined ? null : a.job, jobTyped: !!a.jobTyped, op: a.op, workers: s.names.length ? a.who : undefined, note: a.note, remake: a.remake }, a.op && ST.labelsWay(s.L, a.op) ? { labels: a.labels } : {});
 }
 function afterTrial(s, a) {
   const f = afterBase(s, a), minutes = VIEW.parseLength(a.length), start = a.clock ? new Date(ST.atLocal(a.day, a.clock, zone())).toISOString() : null;
@@ -297,6 +306,7 @@ function afterTrial(s, a) {
   if (!start) return { problem: '', ready: false };
   if (String(a.length).trim() && minutes === null) return { problem: 'How long could not be read: type it like 2 h 30, 2:30 or 150.', ready: false };
   if (s.names.length && !a.who.length) return { problem: '', ready: false };
+  if (a.op && ST.labelsWay(s.L, a.op) && typeof a.labels !== 'boolean') return { problem: '', ready: false };
   f.at = start;
   if (minutes !== null) f.minutes = minutes; else if (a.stopClock) f.until = new Date(ST.atLocal(a.day, a.stopClock, zone())).toISOString(); else return { problem: '', ready: false };
   try {
@@ -316,6 +326,7 @@ screens.after = () => {
     body: errorBox() + (tr.problem ? '<div class="note-error"><div>' + esc(tr.problem) + '</div></div>' : '') + '<div class="section"><div class="facts">' +
       fact('Job', a.job === undefined ? 'not picked yet' : VIEW.jobWords(a.job), 'after-pick-job', null, a.job === undefined) + fact('What', a.op || 'not picked yet', 'after-pick-op', null, !a.op) +
       fact('Who', who || 'not picked yet', s.names.length ? 'after-pick-who' : '', null, !who) +
+      (a.op && ST.labelsWay(s.L, a.op) ? '<div class="fact"><div class="fl">Labels</div><div class="fv grow">' + (typeof a.labels === 'boolean' ? '' : '<span class="small">Labels put on the parts?</span>') + '</div>' + labelSeg(a.labels, false, 'after-labels', '') + '</div>' : '') +
       fact('Day', VIEW.dayName(a.day), 'after-pick-day') + fact('Started', a.clock ? ST.showClock(new Date(ST.atLocal(a.day, a.clock, zone())).toISOString(), zone()) : 'not set yet', 'after-pick-clock', a.clock ? 'typed' : null, !a.clock) +
       fact('How long', minutes !== null ? ST.showMinutes(minutes) : 'not set yet', 'after-pick-length', minutes !== null ? 'typed' : null, minutes === null) +
       fact('Stopped', stopShown || 'not set yet', 'after-pick-stop', stopShown ? (minutes !== null ? 'worked out from How long' : 'typed') : null, !stopShown) + '</div>' +
@@ -347,6 +358,19 @@ function workerLine(t, w) {
     '<span class="small">' + esc(ST.showMinutes(w.minutes)) + '</span>' +
     '<button type="button" class="btn mini" data-act="' + (w.paused ? 'w-resume' : 'w-pause') + '" data-id="' + esc(t.id) + '" data-name="' + esc(w.name) + '">' + (w.paused ? 'Resume' : 'Pause') + '</button></div>';
 }
+/* Labels, On | Off (owner, 21 Nov 2026; mockups 19 to 22): the page's own two-button switch. picked: true, false, or null (neither lit); act is the data-act each button carries */
+function labelSeg(picked, locked, act, extra, wide) {
+  return '<div class="seg" role="group" aria-label="Labels"' + (wide ? ' style="width:100%"' : '') + '>' + [[true, 'On'], [false, 'Off']].map(([k, t]) =>
+    '<button type="button" class="btn' + (picked === k ? ' lit' : '') + '" data-act="' + act + '" data-to="' + (k ? 'on' : 'off') + '"' + (extra || '') + ' aria-pressed="' + (picked === k) + '"' + (locked ? ' disabled' : '') +
+    ' style="' + (wide ? 'flex:1;' : '') + (locked ? 'opacity:.45' : '') + '">' + t + '</button>').join('') + '</div>';
+}
+const sheetsOf = (n) => n + (n === 1 ? ' sheet' : ' sheets');
+/* the Labels line of a CNC card: what it says now, and the switch, which works only while Loading and unloading is running and the task is not paused */
+function cncLabels(t) {
+  const b = t.labels, c = t.cnc, can = c.now === 'loading' && !t.paused, word = b.now === null ? 'not asked' : b.now ? 'on' : 'off';
+  const why = can ? (b.now === false ? 'off from this unload on, until turned back on' : b.now === null ? 'not asked: pick one' : 'on \u00b7 can be changed now') : word + ' \u00b7 ' + (t.paused ? 'the task is paused' : 'change it while loading and unloading');
+  return '<div class="wline"><span class="grow"><span class="wn">Labels</span><span class="pz" style="color:' + (can ? 'var(--good)' : 'var(--muted)') + '">' + esc(why) + '</span></span>' + labelSeg(b.now, !can, 'cnc-labels', ' data-id="' + esc(t.id) + '"') + '</div>';
+}
 /* the CNC: two large buttons that say what the machine is doing (the one running lit in green with its own time), and its three totals */
 function cncPart(t) {
   const c = t.cnc, cur = c.stretches[c.stretches.length - 1];
@@ -354,12 +378,18 @@ function cncPart(t) {
     (c.now === part ? (t.paused ? '<span class="small">paused</span>' : live(cur.minutes, 'color:var(--good)')) : '<span class="small">tap to switch</span>') + '</button>';
   const sum = (a, b, strong) => '<div class="sumrow' + (strong ? ' strong' : '') + '"><span>' + a + '</span><span class="time">' + esc(b) + '</span></div>';
   return '<div class="cncgrid">' + big('cutting') + big('loading') + '</div><div class="sums">' + sum('Cutting' + (c.sheets ? ', sheet ' + c.sheets : ''), ST.showMinutes(c.cutting)) +
-    sum('Loading and unloading', ST.showMinutes(c.loading)) + sum('CNC total', ST.showMinutes(t.minutes), true) + '</div>';
+    sum('Loading and unloading', ST.showMinutes(c.loading)) + (t.labels && t.labels.of ? sum('Labels put on', t.labels.labelled + ' of ' + sheetsOf(t.labels.of)) : '') + sum('CNC total', ST.showMinutes(t.minutes), true) + '</div>' +
+    (t.labels && t.running ? cncLabels(t) : '');
+}
+/* Beam saw cutting: the card only says which, set at the start and never changed (a switch would let it be changed) */
+function sawLabels(t) {
+  const on = t.labels.on;
+  return '<div class="wline"><span class="grow"><span class="wn">Labels</span><span class="pz" style="color:var(--muted)">set at the start \u00b7 to change it, stop and start a new timer</span></span><span style="font-size:16px;font-weight:600;padding-right:6px">' + (on === null ? 'not asked' : on ? 'On' : 'Off') + '</span></div>';
 }
 function taskCard(t) {
   const head = t.mode === 'cnc' ? 'The CNC' : t.mode === 'maintenance' ? t.machine + ' · ' + t.work : 'The task';
   return '<div class="tcard' + (t.paused ? ' paused' : '') + '" data-timer="' + esc(t.id) + '"><div class="thead"><div class="who grow">' + esc(head) + '</div>' + timeOf(t, '19px') + '</div>' +
-    (t.cnc ? cncPart(t) : '') + t.workers.map((w) => workerLine(t, w)).join('') + (t.note ? '<div class="note">' + esc(t.note) + '</div>' : '') +
+    (t.cnc ? cncPart(t) : '') + (t.labels && t.labels.kind === 'timer' ? sawLabels(t) : '') + t.workers.map((w) => workerLine(t, w)).join('') + (t.note ? '<div class="note">' + esc(t.note) + '</div>' : '') +
     (t.cnc ? '<button type="button" class="btn quiet" data-act="cnc-undo" data-id="' + esc(t.id) + '"' + (t.cnc.lastSwitch ? '' : ' disabled') + '>Undo the last switch</button>' : '') +
     pauseStop(t, ' the task') + '<button type="button" class="linkbtn center" data-act="timer" data-id="' + esc(t.id) + '">Correct this timer</button></div>';
 }
@@ -382,7 +412,10 @@ screens.op = () => {
   const s = snap(), job = ui.job || { name: null }, f = ui.form, here = VIEW.opStatus(s.timers, job.name, ui.op).timers, m = ui.maint;
   const chip = (n) => { const on = f.who.some((x) => x.toLowerCase() === n.toLowerCase());
     return '<button type="button" class="opbtn' + (on ? ' chosen" aria-pressed="true' : '') + '" data-act="who" data-name="' + esc(n) + '">' + (on ? CHK : '') + '<span>' + esc(n) + '</span></button>'; };
-  const alone = !s.names.length, me = store.by(), ready = alone || f.who.length > 0;       /* alone and not signed in: the tap says so in plain words, and offers the sign-in */
+  const way = ST.labelsWay(s.L, ui.op), alone = !s.names.length, me = store.by(), ready = alone || f.who.length > 0, labelled = !way || typeof f.labels === 'boolean';
+  const stepNo = (n) => String(n - (alone ? 1 : 0));      /* alone, the names step is not asked */
+  const labelsBox = !way ? '' : '<div style="display:flex;flex-direction:column;gap:6px;padding-top:4px"><div class="step">' + stepNo(2) + '. ' + (way === 'sheets' ? 'Labels put on while unloading?' : 'Labels put on the parts?') + '</div>' + labelSeg(f.labels, false, 'start-labels', '', true) +
+    '<div class="small">' + (way === 'sheets' ? 'Pick one: nothing is picked for you. It holds for every sheet, and can be changed on the timer while loading and unloading.' : 'Pick one: nothing is picked for you. It is set once, for the whole timer.') + '</div></div>';       /* alone and not signed in: the tap says so in plain words, and offers the sign-in */
   return {
     top: '<button type="button" class="back" data-act="go" data-to="' + (m ? 'maint' : 'timed') + '" aria-label="Back">' + BACK + '<span>Back</span></button><div class="name"><div class="title" style="font-size:20px">' + esc(ui.op) + '</div><div class="sub">' + esc(VIEW.jobWords(job.name) + (m ? ' · ' + m.machine + ' · ' + m.work : '')) + '</div></div>',
     body: errorBox() + '<div class="section"><div class="label">Running here: ' + here.length + '</div>' + (here.length ? '<div class="cardgrid one">' + here.map(taskCard).join('') + '</div>' : '<div class="small">Nothing is running here yet.</div>') + '</div>' +
@@ -390,9 +423,9 @@ screens.op = () => {
       (alone ? '<div class="step">The timer is in your name' + (me ? ' (' + esc(me) + ')' : '') + '. Names to pick from can be added with Add / remove a person.</div>'
         : '<div class="step">1. Who is working? Pick one or more</div><div class="cardgrid">' + s.names.map(chip).join('') + '</div>') +
       '<button type="button" class="btn" data-act="go" data-to="people" data-from="op" style="min-height:44px;font-size:15px">Add / remove a person</button>' +
-      '<label class="field" style="padding-top:4px"><span class="step">' + (alone ? '1' : '2') + '. A note on what it is (you may leave it empty)</span><input type="text" class="input" data-input="note" autocomplete="off" value="' + esc(f.note) + '"></label>' +
+      labelsBox + '<label class="field" style="padding-top:4px"><span class="step">' + stepNo(way ? 3 : 2) + '. A note on what it is (you may leave it empty)</span><input type="text" class="input" data-input="note" autocomplete="off" value="' + esc(f.note) + '"></label>' +
       '<label class="check"><input type="checkbox" data-input="remake"' + (f.remake ? ' checked' : '') + '><span>Remake: redoing work already done</span></label>' +
-      '<button type="button" class="btn go" data-act="start"' + (ready ? '' : ' disabled') + '>' + (alone ? 'Start the timer' : f.who.length ? 'Start: ' + esc(VIEW.namesWords(f.who)) : 'Pick who is working') + '</button></div>',
+      '<button type="button" class="btn go" data-act="start"' + (ready && labelled ? '' : ' disabled') + '>' + (!ready ? 'Pick who is working' : !labelled ? 'Pick Labels: On or Off' : alone ? 'Start the timer' : 'Start: ' + esc(VIEW.namesWords(f.who))) + '</button></div>',
     bar: mainBar(), barClass: barClass()
   };
 };
@@ -559,6 +592,18 @@ function whoSheet(title, chosen, doneAct) {
 acts['pick-who'] = (d) => { const i = ui.picking.findIndex((x) => x.toLowerCase() === d.name.toLowerCase()); if (i >= 0) ui.picking.splice(i, 1); else ui.picking.push(d.name); ui.pickDraw(); };
 acts['timer-pick-workers'] = () => { const s = snap(), T = trialEdit(s, ui.edit.id, ui.edit.set).T; whoSheet('Who is working', T.workers.map((w) => w.name), 'timer-set-workers'); };
 acts['timer-set-workers'] = () => { ui.edit.set.workers = ui.picking.slice(); closeSheet(); render(); };
+/* Labels, sheet by sheet: each sheet keeps the answer given while it was unloaded; each can be turned On or Off, and Done keeps the draft for Save the changes */
+function labelsSheet() {
+  const s = snap(), T = trialEdit(s, ui.edit.id, ui.edit.set).T, cuts = T.cnc.stretches.map((x, i) => [x, T.cnc.stretches[i + 1]]).filter(([x]) => x.what === 'cutting');
+  const d = ui.labDraft;
+  sheet('<h2>Labels, sheet by sheet</h2><p class="small">Each sheet keeps the answer given while it was unloaded.</p>' + d.map((on, i) => {
+    const [cut, unload] = cuts[i], when = unload ? 'unloaded ' + ST.showClock(cut.stop, zone()) : 'cut ' + ST.showClock(cut.stop, zone()) + ', not unloaded';
+    return '<div class="wline"><span class="grow"><span class="wn">Sheet ' + (i + 1) + '</span><span class="pz" style="color:var(--muted)">' + esc(when) + '</span></span>' + labelSeg(on, false, 'lab-sheet', ' data-n="' + i + '"') + '</div>';
+  }).join('') + '<div class="two"><button type="button" class="btn" data-act="close">Cancel</button><button type="button" class="btn go" data-act="timer-set-labels">Done</button></div>');
+}
+acts['timer-pick-labels'] = () => { const T = trialEdit(snap(), ui.edit.id, ui.edit.set).T; ui.labDraft = T.labels.sheets.map((x) => x.on === true); labelsSheet(); };
+acts['lab-sheet'] = (d) => { ui.labDraft[+d.n] = d.to === 'on'; labelsSheet(); };
+acts['timer-set-labels'] = () => { ui.edit.set.sheetLabels = ui.labDraft.slice(); ui.labDraft = null; closeSheet(); render(); };
 acts['timer-pick-machine'] = () => { const s = snap(); sheet('<h2>Machine</h2>' + s.L.machines.map((n) => pickRow(n, 'timer-set-machine')).join('') + '<button type="button" class="btn" data-act="close">Cancel</button>'); };
 acts['timer-set-machine'] = (d) => { ui.edit.set.machine = d.name; closeSheet(); render(); };
 acts['timer-pick-work'] = () => sheet('<h2>Kind of work</h2>' + ST.MAINTENANCE_KINDS.map((n) => pickRow(n, 'timer-set-work')).join('') + '<button type="button" class="btn" data-act="close">Cancel</button>');
@@ -585,6 +630,7 @@ function pickOdo(which) {
 acts['timer-pick-odoOut'] = () => pickOdo('odoOut');
 acts['timer-pick-odoBack'] = () => pickOdo('odoBack');
 acts['timer-set-odo'] = (d) => { ui.edit.set[d.which] = odoValue($('pickodo').value); closeSheet(); render(); };
+acts['after-labels'] = (d) => { ui.after.labels = d.to === 'on'; render(); };
 acts['after-add'] = () => {
   const s = snap(), tr = afterTrial(s, ui.after);
   try {
@@ -653,7 +699,7 @@ acts.who = (d) => {
 /* Start. A second timer on the same operation and job asks first (mockup 5), and what is chosen is done as one action by syntratime.js. */
 function startFields(s, second) {
   const job = ui.job || { name: null, typed: false }, f = ui.form;
-  return Object.assign({ job: job.name, jobTyped: !!job.typed, op: ui.op, workers: s.names.length ? f.who : undefined, note: f.note, remake: f.remake }, ui.maint || {}, second ? { second } : {});
+  return Object.assign({ job: job.name, jobTyped: !!job.typed, op: ui.op, workers: s.names.length ? f.who : undefined, note: f.note, remake: f.remake }, ST.labelsWay(s.L, ui.op) ? { labels: f.labels } : {}, ui.maint || {}, second ? { second } : {});
 }
 function secondSheet(s, ids) {
   const first = s.timers.filter((t) => ids.includes(t.id)), t = first[0], many = first.length > 1, full = 'min-height:52px;font-size:16px;flex:none';
@@ -675,6 +721,8 @@ acts.start = (d) => {
     closeSheet(); ui.error = e.message; render();
   }
 };
+acts['start-labels'] = (d) => { ui.form.labels = d.to === 'on'; render(); };
+acts['cnc-labels'] = (d) => { const s = snap(); attempt(() => record(ST.setLabels(s.events, store.device, store.by(), s.L, d.id, d.to === 'on', now()))); };
 acts.stop = (d) => {
   const s = snap(), t = s.timers.find((x) => x.id === d.id);
   if (t && t.trip) {

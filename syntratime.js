@@ -40,7 +40,7 @@ const PLACES = {
 };
 
 /* the kinds of event a diary holds */
-const EVENT_TYPES = ['start', 'stop', 'edit', 'going', 'pause', 'resume', 'switch', 'unswitch', 'checkin', 'eod', 'names', 'vehicles'];
+const EVENT_TYPES = ['start', 'stop', 'edit', 'going', 'pause', 'resume', 'switch', 'unswitch', 'labels', 'checkin', 'eod', 'names', 'vehicles'];
 /* how a start or stop came to be: tapped at the moment, typed in afterwards, or (stops only) the end-of-day check with no answer */
 const HOW = { start: ['tap', 'typed'], stop: ['tap', 'typed'] };
 const OP_KINDS = ['person', 'machine'];       /* person time and machine time are kept apart (owner, 17 and 19 Nov 2026) */
@@ -48,6 +48,15 @@ const OP_KINDS = ['person', 'machine'];       /* person time and machine time ar
 const OP_MODES = ['cnc', 'maintenance'];
 const CNC_PARTS = ['cutting', 'loading'];     /* what the CNC is doing: starting one ends the other */
 const CNC_WORDS = { cutting: 'Cutting', loading: 'Loading and unloading' };
+/* Labels (owner, 21 Nov 2026, with his hand test 7): unloading with the labels put on takes longer than without, so two CNC timers can only be compared when this is known.
+   Two operations ask it, once, when the timer starts, and Start waits for the answer (nothing is picked beforehand):
+   - the CNC ("sheets"): On or Off for the timer, and a switch that can be turned only while Loading and unloading is the part running (the task not paused). A change is an event
+     of its own ("labels"). A sheet is labelled when Labels is on at the moment Cutting is tapped again after that sheet's cutting (the end of its unload), or at Stop when the
+     timer is stopped during that unload. What the switch said earlier in that unload does not matter, and the answer stays as it was left until it is turned again;
+   - Beam saw cutting ("timer"): On or Off for the whole timer, set once, never changed afterwards: to change it, stop the timer and start a new one.
+   An operation asks when it is the CNC (mode cnc) or carries labels: true on the lists. A lists file written before this has no such field, so "Beam saw cutting" asks anyway
+   until the lists say otherwise (labels: false). A timer started before this has no answer and reads "not asked". */
+const LABELS_STARTER = 'Beam saw cutting';
 const MAINTENANCE_KINDS = ['Repair', 'Regular maintenance', 'Changing tooling'];
 /* the machines maintenance may be for, to begin with: his four computerised machines. A list in the lists file, with add and delete (SyntraQuote's Settings). */
 const STARTER_MACHINES = ['CNC', 'Beam saw', 'Edge bander', 'Dowel inserter'];
@@ -55,7 +64,7 @@ const LONG_HOURS = 4;                         /* the long-timer limit to begin w
 /* the end-of-day check of a phone or tablet that has never set its own: on, at 4:00 pm (the shop day ends at 4 pm: owner, 19 Nov 2026) */
 const END_OF_DAY = { on: true, at: '16:00' };
 const EOD_KEEP_DAYS = 3;                      /* a device writes its end-of-day setting again when its last note of it is older than this, so every reader has it */
-const EDITABLE = ['job', 'jobTyped', 'op', 'workers', 'person', 'machine', 'work', 'vehicle', 'odoOut', 'odoBack', 'note', 'remake', 'start', 'stop', 'checked', 'cancelled'];
+const EDITABLE = ['job', 'jobTyped', 'op', 'workers', 'person', 'machine', 'work', 'vehicle', 'odoOut', 'odoBack', 'note', 'remake', 'start', 'stop', 'checked', 'cancelled', 'sheetLabels'];
 /* device ids: four letters and figures, with none that are easily mistaken for another (no I, O, 0 or 1) */
 const ID_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const SHOP_NO_JOB = 'Shop, no job';           /* how a timer with no job (job: null) is written on screen: cleaning, maintenance, the overhead the price needs */
@@ -72,11 +81,11 @@ const TRIP_WIDE = ['job', 'jobTyped', 'op', 'opKind', 'out', 'note'];
    the shop or out. The kinds of trip out (delivery, pickup, install, site visit) are the operations marked out: one list, kept once. */
 const STARTER_OPERATIONS = [
   ['Site visit', 'person', true], ['Shop drawings', 'person', false], ['Maintenance', 'person', false, 'maintenance'],
-  ['CNC', 'machine', false, 'cnc'], ['Beam saw cutting', 'machine', false], ['Edgebanding', 'machine', false], ['Dowel insertion', 'machine', false],
+  ['CNC', 'machine', false, 'cnc'], ['Beam saw cutting', 'machine', false, null, true], ['Edgebanding', 'machine', false], ['Dowel insertion', 'machine', false],
   ['Laminating', 'person', false], ['Solid surface', 'person', false], ['Assembly', 'person', false], ['Finishing', 'person', false],
   ['Doors and hardware', 'person', false], ['Delivery', 'person', true], ['Pickup', 'person', true], ['Installation', 'person', true],
   ['Cleaning', 'person', false]
-].map(([name, kind, out, mode]) => (mode ? { name, kind, out, mode } : { name, kind, out }));
+].map(([name, kind, out, mode, labels]) => Object.assign({ name, kind, out }, mode ? { mode } : {}, labels ? { labels: true } : {}));
 
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 const isNum = (v) => typeof v === 'number' && isFinite(v);
@@ -172,6 +181,7 @@ function checkLists(L) {
       if (o.mode != null && !OP_MODES.includes(o.mode)) p.push('The operation "' + o.name + '" is timed in a way SyntraTime does not know.');
       if (o.mode === 'cnc' && (o.kind !== 'machine' || o.out)) p.push('The operation "' + o.name + '" is the CNC and is not machine time in the shop.');
       if (o.mode === 'maintenance' && (o.kind !== 'person' || o.out)) p.push('The operation "' + o.name + '" is maintenance and is not person time in the shop.');
+      if (o.labels != null && typeof o.labels !== 'boolean') p.push('The operation "' + o.name + '" does not say plainly whether it asks about labels.');
     });
     twice(L.operations.filter(isObj).map((o) => o.name), 'The operation');
   }
@@ -189,6 +199,15 @@ function checkLists(L) {
   return p;
 }
 const findOp = (L, name) => (L.operations || []).find((o) => same(o.name, name));
+/* how an operation asks about labels: 'sheets' (the CNC), 'timer' (Beam saw cutting), or null (it does not ask) */
+function labelsWay(L, name) {
+  const o = findOp(L, name);
+  if (!o || o.out) return null;
+  if (o.mode === 'cnc') return 'sheets';
+  if (o.labels === true) return 'timer';
+  if (o.labels == null && same(o.name, LABELS_STARTER)) return 'timer';
+  return null;
+}
 /* editing the lists (SyntraQuote's Settings): each gives back new lists and refuses in plain words, changing nothing */
 function addToList(L, key, name, what) {
   if (!isText(name)) refuse('Type the ' + what + '\'s name.');
@@ -324,6 +343,7 @@ function eventProblems(e) {
     } else if (!Array.isArray(e.workers) || !e.workers.length || !e.workers.every(isText)) p.push(who + 'it does not say who is working.');
     if (e.mode != null && !OP_MODES.includes(e.mode)) p.push(who + 'it is timed in a way SyntraTime does not know.');
     if (e.mode === 'maintenance' && (!isText(e.machine) || !MAINTENANCE_KINDS.includes(e.work))) p.push(who + 'the maintenance does not say which machine, or which kind of work.');
+    if (e.labels != null && typeof e.labels !== 'boolean') p.push(who + 'labels is neither on nor off.');
   }
   if (e.type === 'stop') {
     if (!isInstant(e.at)) p.push(who + 'the stop is not in world time.');
@@ -333,12 +353,14 @@ function eventProblems(e) {
     if (!isObj(e.set) || !Object.keys(e.set).length) p.push(who + 'the correction changes nothing.');
     else for (const k of Object.keys(e.set)) if (!EDITABLE.includes(k) && k !== 'opKind' && k !== 'out') p.push(who + '"' + k + '" cannot be corrected.');
     if (isObj(e.set)) for (const k of ['start', 'stop']) if (k in e.set && !isInstant(e.set[k])) p.push(who + 'the corrected ' + k + ' is not in world time.');
+    if (isObj(e.set) && 'sheetLabels' in e.set && (!Array.isArray(e.set.sheetLabels) || !e.set.sheetLabels.length || !e.set.sheetLabels.every((b) => typeof b === 'boolean'))) p.push(who + 'the corrected labels are not on or off for each sheet.');
     if (isObj(e.set) && 'workers' in e.set && (!Array.isArray(e.set.workers) || !e.set.workers.length || !e.set.workers.every(isText))) p.push(who + 'the corrected workers name nobody.');
   }
   if (e.type === 'going' && !isInstant(e.check)) p.push(who + 'the check it answers is not in world time.');
   if ((e.type === 'pause' || e.type === 'resume') && (!isInstant(e.at) || (e.worker != null && !isText(e.worker)))) p.push(who + 'it does not say when, or for whom.');
   if (e.type === 'switch' && (!isInstant(e.at) || !CNC_PARTS.includes(e.to))) p.push(who + 'it does not say when, or what the CNC went on to.');
   if (e.type === 'unswitch' && !isText(e.undo)) p.push(who + 'it does not say which switch is undone.');
+  if (e.type === 'labels' && (!isInstant(e.at) || typeof e.on !== 'boolean')) p.push(who + 'it does not say when, or whether labels are on.');
   if (e.type === 'checkin' && !isInstant(e.at)) p.push(who + 'the check-in is not in world time.');
   if (e.type === 'eod' && (typeof e.on !== 'boolean' || !isClock(e.at))) p.push(who + 'it does not say whether the end-of-day check is on, or its time.');
   if (e.type === 'names' && (!['add', 'remove'].includes(e.action) || !isText(e.name))) p.push(who + 'it does not say which name to add or remove.');
@@ -394,6 +416,14 @@ function covered(spans, a, b) {
   for (const [x, y] of cut) { if (y <= end) continue; sum += y - Math.max(x, end); end = y; }
   return sum;
 }
+/* the stretches of [a, b] that the spans leave uncovered, in order: [ [from, to] ... ] */
+function uncovered(spans, a, b) {
+  const cut = spans.map(([x, y]) => [Math.max(x, a), Math.min(y, b)]).filter(([x, y]) => y > x).sort((p, q) => p[0] - q[0]), out = [];
+  let pos = a;
+  for (const [x, y] of cut) { if (x > pos) out.push([pos, x]); pos = Math.max(pos, y); }
+  if (b > pos) out.push([pos, b]);
+  return out;
+}
 /* a device's end-of-day check at an instant: the last setting it wrote at or before then, or the one every device starts with */
 function eodAt(list, t) {
   let s = END_OF_DAY;
@@ -422,7 +452,7 @@ const vehicleKey = (t) => (!t.vehicle ? null : same(t.vehicle, OWN_VEHICLE) ? 'o
 const isOwn = (t) => !!t.vehicle && same(t.vehicle, OWN_VEHICLE);
 function timersFrom(events, L, now) {
   const at = nowMs(now), zone = L.settings.zone, problems = [], starts = new Map(), rest = new Map(), going = new Map(), eod = new Map(), more = new Map();
-  const side = (id) => { if (!more.has(id)) more.set(id, { pauses: [], switches: [], undone: new Set(), checkins: [] }); return more.get(id); };
+  const side = (id) => { if (!more.has(id)) more.set(id, { pauses: [], switches: [], undone: new Set(), checkins: [], labels: [] }); return more.get(id); };
   for (const e of inOrder(events)) {
     const bad = eventProblems(e);
     if (bad.length) { problems.push(...bad.map((text) => ({ timer: e && e.timer || e && e.id || null, text }))); continue; }
@@ -437,6 +467,7 @@ function timersFrom(events, L, now) {
     if (e.type === 'pause' || e.type === 'resume') { side(e.timer).pauses.push(e); continue; }
     if (e.type === 'switch') { side(e.timer).switches.push(e); continue; }
     if (e.type === 'unswitch') { side(e.timer).undone.add(e.undo); continue; }
+    if (e.type === 'labels') { side(e.timer).labels.push(e); continue; }
     if (e.type === 'checkin') { side(e.timer).checkins.push(ms(e.at)); continue; }
     if (!rest.has(e.timer)) rest.set(e.timer, []);
     rest.get(e.timer).push(e);
@@ -462,8 +493,8 @@ function timersFrom(events, L, now) {
       vehicle: s.vehicle || null, odoOut: isNum(s.odoOut) ? s.odoOut : null, odoBack: null, note: s.note || '', remake: !!s.remake,
       trip: s.trip || null, driver: !!s.driver,
       start: s.at, startHow: s.how, stop: null, stopHow: null, checkAt: null, minutes: null, combined: null, running: false, paused: false, pausedAt: null,
-      checkin: null, confirmed: 0, unconfirmed: 0, cnc: null, toCheck: false, why: [], cancelled: false };
-    let tapped = null, edited = null, checked = false, names = s.trip ? [s.person] : s.workers.slice();
+      checkin: null, confirmed: 0, unconfirmed: 0, cnc: null, labels: null, toCheck: false, why: [], cancelled: false };
+    let tapped = null, edited = null, checked = false, fixedSheets = null, names = s.trip ? [s.person] : s.workers.slice();
     const own = rest.get(id) || [], mine = shared.has(id) ? inOrder(own.concat(shared.get(id))) : own;
     for (const e of mine) {
       if (e.type === 'stop') { if (!tapped) { tapped = e; if (isNum(e.odoBack)) T.odoBack = e.odoBack; } continue; }
@@ -472,13 +503,14 @@ function timersFrom(events, L, now) {
         else if (k === 'stop') edited = v;
         else if (k === 'checked') checked = !!v;
         else if (k === 'cancelled') T.cancelled = !!v;
+        else if (k === 'sheetLabels') fixedSheets = v.slice();
         else if (k === 'remake' || k === 'jobTyped') T[k] = !!v;
         else if (k === 'workers') { if (!T.trip) names = v.slice(); }
         else if (k === 'person') { if (T.trip) { T.person = v; names = [v]; } }
         else T[k] = v;
       }
     }
-    const M = more.get(id) || { pauses: [], switches: [], undone: new Set(), checkins: [] }, st = ms(T.start);
+    const M = more.get(id) || { pauses: [], switches: [], undone: new Set(), checkins: [], labels: [] }, st = ms(T.start);
     const pauses = M.pauses.slice().sort((a, b) => ms(a.at) - ms(b.at)), taskPaused = pausedSpans(pauses, null);
     if (edited) { T.stop = edited; T.stopHow = 'typed'; }
     else {
@@ -501,7 +533,10 @@ function timersFrom(events, L, now) {
     const tp = openNow(taskPaused); T.paused = tp !== null; T.pausedAt = tp !== null ? iso(tp) : null;
     T.workers = names.map((name) => {
       const mineOnly = pausedSpans(pauses, name), wp = openNow(mineOnly);
-      return { name, minutes: count(st, end, taskSpans.concat(clip(mineOnly))), paused: wp !== null, pausedAt: wp !== null ? iso(wp) : null };
+      /* spans: the stretches this worker's time is made of (the task's pauses and their own left out), so one person's timers that ran together can be
+         counted once (workerTime) */
+      return { name, minutes: count(st, end, taskSpans.concat(clip(mineOnly))), paused: wp !== null, pausedAt: wp !== null ? iso(wp) : null,
+        spans: uncovered(taskSpans.concat(clip(mineOnly)), st, end).map(([x, y]) => [iso(x), iso(y)]) };
     });
     T.combined = T.workers.reduce((a, w) => a + w.minutes, 0);
     const cis = M.checkins.filter((t) => t > st && t <= end);
@@ -519,7 +554,25 @@ function timersFrom(events, L, now) {
       stretches.push({ what: cur, start: iso(from), stop: T.stop, minutes: count(from, end, taskSpans) });
       const sum = (w) => stretches.reduce((a, x) => a + (x.what === w ? x.minutes : 0), 0);
       T.cnc = { now: cur, since: iso(from), cutting: sum('cutting'), loading: sum('loading'), sheets: stretches.filter((x) => x.what === 'cutting').length, stretches, lastSwitch: last };
-    }
+      /* Labels on the CNC: the start's answer, then each change made while it was loading and unloading (a change that lies in a stretch that is not, once undone switches
+         are left out, counts for nothing). A sheet is labelled by the answer standing when the loading and unloading after its cutting ends. A sheet cut and never unloaded
+         (the timer stopped while cutting) is not labelled. The sheet being cut now, on a running timer, is not counted yet. A correction (sheetLabels) replaces them. */
+      const asked = typeof s.labels === 'boolean', evs = M.labels.slice().sort((a, b) => ms(a.at) - ms(b.at)).filter((e) => {
+        const x = stretches.find((y) => ms(y.start) <= ms(e.at) && (y.stop === null || ms(e.at) < ms(y.stop)));
+        return x && x.what === 'loading';
+      });
+      const stateAt = (t) => { let v = asked ? s.labels : null; for (const e of evs) { if (ms(e.at) <= t) v = e.on; else break; } return v; };
+      let sheets = [];
+      stretches.forEach((x, i) => {
+        if (x.what !== 'cutting') return;
+        const after = stretches[i + 1];
+        if (!after) { if (!T.running) sheets.push(asked ? false : null); return; }
+        sheets.push(stateAt(after.stop === null ? end : ms(after.stop)));
+      });
+      let fixed = false;
+      if (fixedSheets && fixedSheets.length === sheets.length) { sheets = fixedSheets; fixed = true; }
+      T.labels = { kind: 'sheets', asked, now: stateAt(end), sheets: sheets.map((on, i) => ({ n: i + 1, on })), fixed, labelled: sheets.filter((x) => x === true).length, of: sheets.length };
+    } else if (labelsWay(L, T.op) === 'timer') T.labels = { kind: 'timer', asked: typeof s.labels === 'boolean', on: typeof s.labels === 'boolean' ? s.labels : null };
     /* why it is to check: each reason in plain words. All of them stay until he says the timer is right (checked) or corrects what is missing. */
     if (!T.cancelled) {
       if (T.stopHow === 'check') {
@@ -690,6 +743,10 @@ function startTimer(events, device, by, L, f, now) {
   if (f.vehicle) refuse('A vehicle goes only on a trip out of the shop.');
   const job = pickJob(lists, f), workers = pickWorkers(lists, f.workers, by), typedAt = startAt(f, now);
   const extra = op.mode === 'maintenance' ? { machine: pickMachine(L, f.machine), work: pickWork(f.work) } : { machine: null, work: null };
+  /* Labels: asked by the CNC and by Beam saw cutting, and Start waits for the answer; no other operation takes one */
+  const way = labelsWay(lists, op.name);
+  if (way && typeof f.labels !== 'boolean') refuse(way === 'sheets' ? 'Say whether labels are put on while unloading: On or Off.' : 'Say whether labels are put on the parts: On or Off.');
+  if (!way && f.labels != null) refuse('Only the CNC and Beam saw cutting ask about labels.');
   const before = [];
   if (!typedAt) {
     const here = timersFrom(events, L, now).timers.filter((t) => t.running && !t.cancelled && !t.trip && same(t.op, op.name) && jobSame(t.job, job.job) && (op.mode !== 'maintenance' || same(t.machine, extra.machine)));
@@ -706,7 +763,7 @@ function startTimer(events, device, by, L, f, now) {
   }
   const e = base(events.concat(before), device, by, 'start', now);
   const s = Object.assign(e, { at: typedAt || e.made, how: typedAt ? 'typed' : 'tap' }, job, { op: op.name, opKind: op.kind, out: false, mode: op.mode || null, workers },
-    extra, { note: isText(f.note) ? f.note.trim() : '', remake: !!f.remake });
+    extra, way ? { labels: f.labels } : {}, { note: isText(f.note) ? f.note.trim() : '', remake: !!f.remake });
   return before.length ? before.concat([s]) : s;
 }
 /* a trip keeps what it did before (owner, 20 Nov 2026): starting someone who is on another timer asks first. Without stopOther it refuses, naming where each one
@@ -843,6 +900,20 @@ function undoSwitch(events, device, by, L, timer, now) {
   if (!T.cnc.lastSwitch) refuse('There is no switch to undo.');
   return Object.assign(base(events, device, by, 'unswitch', now), { timer, undo: T.cnc.lastSwitch });
 }
+/* the CNC's Labels switch (owner, 21 Nov 2026): turned only while Loading and unloading is the part running and the task is not paused. It is an event of its own, so
+   "Undo the last switch" never touches it; a change that comes to lie outside a loading and unloading stretch (its switch undone) simply counts for nothing. Beam saw cutting
+   has no switch: its answer is the one it started with. */
+function setLabels(events, device, by, L, timer, on, now) {
+  const T = openTimer(events, L, timer, now);
+  if (typeof on !== 'boolean') refuse('Say On or Off.');
+  if (!T.labels) refuse('This timer has no Labels.');
+  if (T.labels.kind === 'timer') refuse('Labels on the beam saw is set when the timer starts and cannot be changed: stop the timer and start a new one.');
+  if (T.paused) refuse('The task is paused: resume it first.');
+  if (T.cnc.now !== 'loading') refuse('Labels can be changed only while the CNC is loading and unloading.');
+  if (T.labels.now === on) refuse('Labels are already ' + (on ? 'on' : 'off') + '.');
+  const e = base(events, device, by, 'labels', now);
+  return Object.assign(e, { timer, at: e.made, on });
+}
 /* a check-in (owner, 21 Nov 2026): someone confirms the work is still going. at may be earlier than now: a Check in tapped on a notification while the page was
    closed is written down when the page next opens. A check-in at or after an end-of-day check answers it, as "still going" does. */
 function checkIn(events, device, by, L, timer, f, now) {
@@ -908,6 +979,8 @@ function editTimer(events, device, by, L, timer, set, now) {
   if (!T) refuse('There is no timer ' + timer + '.');
   if (!isObj(set) || !Object.keys(set).length) refuse('Nothing to change.');
   const out = {}, lists = withLists(events, L);
+  if ('labels' in set) refuse(T.labels && T.labels.kind === 'sheets' ? 'The Labels switch is turned on the running timer, while it is loading and unloading; afterwards it is corrected sheet by sheet.'
+    : 'Labels is set when the timer starts and cannot be changed: stop the timer and start a new one.');
   for (const k of Object.keys(set)) if (!EDITABLE.includes(k)) refuse('"' + k + '" cannot be changed.');
   if (T.trip && set.remake) refuse('There is no Remake on a trip.');
   if (T.trip && !T.driver && ('vehicle' in set || 'odoOut' in set || 'odoBack' in set)) refuse('The vehicle and its readings are on the driver\'s timer (' + T.trip + ').');
@@ -931,6 +1004,13 @@ function editTimer(events, device, by, L, timer, set, now) {
   if ('work' in set) out.work = pickWork(set.work);
   for (const k of ['note']) if (k in set) out[k] = isText(set[k]) ? set[k].trim() : '';
   for (const k of ['remake', 'checked', 'cancelled']) if (k in set) out[k] = !!set[k];
+  if ('sheetLabels' in set) {
+    if (!T.labels || T.labels.kind !== 'sheets') refuse('Only the CNC has Labels sheet by sheet.');
+    if (T.running) refuse('Labels are corrected sheet by sheet once the timer is stopped.');
+    if (!T.labels.of) refuse('This timer has no sheet to label.');
+    if (!Array.isArray(set.sheetLabels) || set.sheetLabels.length !== T.labels.of || !set.sheetLabels.every((b) => typeof b === 'boolean')) refuse('Give On or Off for each of the ' + T.labels.of + (T.labels.of === 1 ? ' sheet.' : ' sheets.'));
+    out.sheetLabels = set.sheetLabels.slice();
+  }
   for (const k of ['odoOut', 'odoBack']) if (k in set) out[k] = odo(set[k], k === 'odoOut' ? 'out' : 'back');
   for (const k of ['start', 'stop']) if (k in set) {
     if (!isInstant(set[k])) refuse('The ' + k + ' time is not readable.');
@@ -961,14 +1041,31 @@ function stillGoing(events, device, by, L, timer, check, now) {
 const jobKey = (j) => (j === null ? '\u0000' : j.toLowerCase());
 const byJob = (a, b) => (a.job === null ? (b.job === null ? 0 : 1) : b.job === null ? -1 : a.job.localeCompare(b.job, 'en', { sensitivity: 'base' }));
 const counted = (t) => !t.cancelled && !t.running;
+/* Labels in words, the same on the phone and in SyntraQuote. A timer: "On", "Off", "not asked"; the CNC's: "on 2 of 3 sheets", "no sheet cut yet", "not asked". "" when the timer has none. */
+function labelsWords(t) {
+  const b = t && t.labels; if (!b) return '';
+  if (b.kind === 'timer') return b.on === null ? 'not asked' : b.on ? 'On' : 'Off';
+  if (!b.asked && b.sheets.every((x) => x.on === null)) return 'not asked';
+  if (!b.of) return 'no sheet unloaded yet';
+  return 'on ' + b.labelled + ' of ' + b.of + (b.of === 1 ? ' sheet' : ' sheets');
+}
+/* the same for an operation's row in a job's hours: "labels on 2 of 3 sheets", "labels on 0 of 1 timer", and the timers with no answer counted apart; "" when there is nothing to say */
+function labelsRowWords(o) {
+  const b = o && o.labels; if (!b) return '';
+  const unit = b.kind === 'sheets' ? (b.of === 1 ? 'sheet' : 'sheets') : (b.of === 1 ? 'timer' : 'timers');
+  const main = b.of || !b.notAsked ? 'labels on ' + b.on + ' of ' + b.of + ' ' + unit : '';
+  const rest = b.notAsked ? b.notAsked + (b.notAsked === 1 ? ' timer' : ' timers') + ' not asked' : '';
+  return [main, rest].filter(Boolean).join(' \u00b7 ');
+}
 const az = (a, b) => String(a).localeCompare(String(b), 'en', { sensitivity: 'base' });
 /* one person's figures: their own minutes, the remake and to-check minutes inside them, and how many timers */
 const personRow = (person) => ({ person, minutes: 0, remake: 0, check: 0, timers: 0 });
 const byMinutes = (a, b) => b.minutes - a.minutes || az(a.person, b.person);
 /* for each job (and "Shop, no job", last): person and machine (the tasks' time, apart), combined (every worker's own time, added up), remake and check as
    { person, machine }, toCheck (how many timers), trips, people (each worker's own minutes on the job, machines' operations included, most first: they add up
-   to combined), and ops: for each operation its task time, timers, workers (the names, A to Z), together (the most workers on one timer), combined, and for
-   the CNC its cutting, loading and sheets, for Maintenance its minutes by machine and kind of work. */
+   to combined), and ops: for each operation its task time, timers, workers (the names, A to Z), together (the most workers on one timer), combined, people
+   (each worker's own minutes on that operation, with their remake and to-check minutes and timers, most first: they add up to the operation's combined; the
+   operation picked on the one view, owner 21 Nov 2026), and for the CNC its cutting, loading and sheets, for Maintenance its minutes by machine and kind of work. */
 function jobTotals(timers) {
   const jobs = new Map();
   for (const t of timers) {
@@ -981,12 +1078,19 @@ function jobTotals(timers) {
     /* an operation is its name and its kind: one whose kind was changed in Settings keeps its old records apart, so a machine hour never joins a person hour */
     const ok = k + '|' + t.op.toLowerCase();
     if (!J.ops.has(ok)) J.ops.set(ok, { op: t.op, kind: k, mode: t.mode, person: 0, machine: 0, remake: 0, check: 0, timers: 0, workers: [], together: 0, combined: 0,
-      cutting: 0, loading: 0, sheets: 0, maintenance: [] });
+      people: new Map(), cutting: 0, loading: 0, sheets: 0, maintenance: [], labels: null });
     const O = J.ops.get(ok);
     J[k] += t.minutes; O[k] += t.minutes; O.timers++; J.combined += t.combined; O.combined += t.combined; O.together = Math.max(O.together, t.workers.length);
     if (t.remake) { J.remake[k] += t.minutes; O.remake += t.minutes; }
     if (t.toCheck) { J.toCheck++; J.check[k] += t.minutes; O.check += t.minutes; }
     if (t.cnc) { O.cutting += t.cnc.cutting; O.loading += t.cnc.loading; O.sheets += t.cnc.sheets; }
+    /* Labels: on the CNC, on how many of the sheets (a timer with no answer at all is counted apart, never as a sheet without labels); on Beam saw cutting, on how many of the timers */
+    if (t.labels) {
+      const Lb = O.labels || (O.labels = { kind: t.labels.kind, on: 0, of: 0, notAsked: 0 });
+      if (t.labels.kind === 'sheets') { if (!t.labels.asked && t.labels.sheets.every((x) => x.on === null)) Lb.notAsked++; else { Lb.on += t.labels.labelled; Lb.of += t.labels.of; } }
+      else if (t.labels.asked) { Lb.of++; if (t.labels.on) Lb.on++; }
+      else Lb.notAsked++;
+    }
     if (t.mode === 'maintenance') {
       let m = O.maintenance.find((x) => same(x.machine, t.machine) && x.work === t.work);
       if (!m) { m = { machine: t.machine, work: t.work, minutes: 0, timers: 0 }; O.maintenance.push(m); }
@@ -996,32 +1100,83 @@ function jobTotals(timers) {
     for (const w of t.workers) {
       if (!O.workers.some((n) => same(n, w.name))) O.workers.push(w.name);
       const pk = w.name.toLowerCase();
-      if (!J.people.has(pk)) J.people.set(pk, personRow(w.name));
-      const R = J.people.get(pk);
-      R.minutes += w.minutes; R.timers++; if (t.remake) R.remake += w.minutes; if (t.toCheck) R.check += w.minutes;
+      for (const rows of [J.people, O.people]) {
+        if (!rows.has(pk)) rows.set(pk, personRow(w.name));
+        const R = rows.get(pk);
+        R.minutes += w.minutes; R.timers++; if (t.remake) R.remake += w.minutes; if (t.toCheck) R.check += w.minutes;
+      }
     }
   }
   return [...jobs.values()].map((J) => { delete J.tripMarks;
-    return Object.assign(J, { people: [...J.people.values()].sort(byMinutes), ops: [...J.ops.values()].map((O) => Object.assign(O, { workers: O.workers.sort(az) })) }); })
+    return Object.assign(J, { people: [...J.people.values()].sort(byMinutes), ops: [...J.ops.values()].map((O) => Object.assign(O, { workers: O.workers.sort(az), people: [...O.people.values()].sort(byMinutes) })) }); })
     .sort(byJob);
 }
-/* the By person view (owner, 21 Nov 2026): each name's tasks with the time of each, and no total (a total reads as hours worked, and these are not employee
-   hours). People A to Z; under each, their tasks in the order they started: the task's own time (minutes), that worker's own time on it (own), how many workers
-   it had and who the others were (with). A task with two names shows under both; on a trip the others are the people on the same trip. */
-function personTasks(timers) {
-  const people = new Map(), trips = new Map();
-  for (const t of timers) if (counted(t) && t.trip) { if (!trips.has(t.trip)) trips.set(t.trip, []); trips.get(t.trip).push(t.person); }
-  for (const t of timers) {
-    if (!counted(t)) continue;
-    const all = t.trip ? trips.get(t.trip) : t.workers.map((w) => w.name);
-    for (const w of t.workers) {
-      const pk = w.name.toLowerCase();
-      if (!people.has(pk)) people.set(pk, { person: w.name, tasks: [] });
-      people.get(pk).tasks.push({ timer: t.id, op: t.op, kind: t.opKind, job: t.job, start: t.start, minutes: t.minutes, own: w.minutes, workers: all.length,
-        with: all.filter((n) => !same(n, w.name)), remake: t.remake, toCheck: t.toCheck, trip: t.trip });
-    }
+/* one worker's timed time (owner, 21 Nov 2026: "a snapshot of a worker's true time", to set beside the timesheet, never in its place; the timers are still not
+   employee hours, and nothing is priced from this). scope is { job } (a job's name, or null for "Shop, no job"; all its time), { month: 'YYYY-MM' } or
+   { year: 'YYYY' }, a month and a year being the shop's own days (zone: the lists' settings.zone). As decided while drawing the total (his to change):
+   - timed: the time that person was on at least one timer, their pauses and the task's left out, counted once where two of their timers ran together
+     (timers ignore each other, so adding the tasks up could say more hours than the clock had). Called "timed", never "worked";
+   - days: the shop days with a timer for that person, because a day nobody tapped adds nothing and must not read as a short day;
+   - a timer still to check counts, as in the job's hours; one started by mistake, or still running, does not;
+   - a timer over midnight is split there, so a month or a year takes only its own part.
+   Gives back { person, scope, from, to (the period's instants, null for a job), timed, days, timers (tasks), withOthers (tasks shared with someone), jobs:
+   [ { job, timed, days, timers, ops: [ { op, kind, mode, out, trip, own (their own time on it, in the period), remake and check (inside own), timers,
+   together (the most workers on one of those timers; on a trip, the people on it), with (the other names, A to Z) } ] } ] }, the jobs A to Z with
+   "Shop, no job" last, the operations in the order first worked. A job's timed time is counted once inside the job; the total is counted once across them all,
+   so the jobs can add up to more than the total when two of that person's timers on different jobs ran together. */
+function mergeSpans(spans) {
+  const out = [];
+  for (const [x, y] of spans.slice().sort((p, q) => p[0] - q[0])) {
+    if (out.length && x <= out[out.length - 1][1]) out[out.length - 1][1] = Math.max(out[out.length - 1][1], y);
+    else out.push([x, y]);
   }
-  return [...people.values()].sort((a, b) => az(a.person, b.person));
+  return out;
+}
+const spanMinutes = (spans) => spans.reduce((a, [x, y]) => a + (y - x), 0) / 60000;
+/* the shop days the spans touch: a span that ends exactly at midnight does not touch the next day */
+function spanDays(spans, zone) {
+  const days = new Set();
+  for (const [x, y] of spans) for (let day = localDay(x, zone), n = 0; atLocal(day, '00:00', zone) < y && n < 400; day = nextDay(day), n++) days.add(day);
+  return days;
+}
+function periodOf(scope, zone) {
+  if (scope && /^\d{4}-\d{2}$/.test(scope.month || '')) {
+    const [y, m] = scope.month.split('-').map(Number), next = m === 12 ? (y + 1) + '-01' : y + '-' + pad(m + 1);
+    return [atLocal(scope.month + '-01', '00:00', zone), atLocal(next + '-01', '00:00', zone)];
+  }
+  if (scope && /^\d{4}$/.test(scope.year || '')) return [atLocal(scope.year + '-01-01', '00:00', zone), atLocal((Number(scope.year) + 1) + '-01-01', '00:00', zone)];
+  if (scope && 'job' in scope && (scope.job === null || isText(scope.job))) return [-Infinity, Infinity];
+  return refuse('Say which job, month (YYYY-MM) or year (YYYY).');
+}
+function workerTime(timers, name, scope, zone) {
+  const z = zone || ZONE, [from, to] = periodOf(scope, z), onJob = 'job' in scope && !('month' in scope) && !('year' in scope);
+  const trips = new Map(), jobs = new Map(), all = [];
+  for (const t of timers) if (counted(t) && t.trip) { if (!trips.has(t.trip)) trips.set(t.trip, []); trips.get(t.trip).push(t.person); }
+  let person = name, tasks = 0, shared = 0;
+  for (const t of timers) {
+    if (!counted(t) || (onJob && !jobSame(t.job, scope.job))) continue;
+    const w = t.workers.find((x) => same(x.name, name));
+    if (!w) continue;
+    const mine = w.spans.map(([a, b]) => [Math.max(ms(a), from), Math.min(ms(b), to)]).filter(([a, b]) => b > a);
+    const st = ms(t.start);
+    if (!mine.length && !(st >= from && st < to)) continue;          /* nothing of it in the period; a task with no time of their own is listed where it starts */
+    person = w.name;
+    const key = jobKey(t.job);
+    if (!jobs.has(key)) jobs.set(key, { job: t.job, spans: [], timers: 0, ops: new Map() });
+    const J = jobs.get(key), ok = t.opKind + '|' + t.op.toLowerCase(), own = spanMinutes(mine);
+    const names = t.trip ? trips.get(t.trip) : t.workers.map((x) => x.name), others = names.filter((n) => !same(n, w.name));
+    if (!J.ops.has(ok)) J.ops.set(ok, { op: t.op, kind: t.opKind, mode: t.mode, out: !!t.out, trip: false, own: 0, remake: 0, check: 0, timers: 0, together: 0, with: [] });
+    const O = J.ops.get(ok);
+    O.own += own; O.timers++; O.together = Math.max(O.together, names.length); if (t.trip) O.trip = true;
+    if (t.remake) O.remake += own; if (t.toCheck) O.check += own;
+    for (const n of others) if (!O.with.some((x) => same(x, n))) O.with.push(n);
+    J.spans.push(...mine); J.timers++; all.push(...mine); tasks++; if (others.length) shared++;
+  }
+  const whole = mergeSpans(all);
+  return { person, scope: Object.assign({}, scope), from: isFinite(from) ? iso(from) : null, to: isFinite(to) ? iso(to) : null,
+    timed: spanMinutes(whole), days: spanDays(whole, z).size, timers: tasks, withOthers: shared,
+    jobs: [...jobs.values()].sort(byJob).map((J) => { const m = mergeSpans(J.spans);
+      return { job: J.job, timed: spanMinutes(m), days: spanDays(m, z).size, timers: J.timers, ops: [...J.ops.values()].map((O) => Object.assign(O, { with: O.with.sort(az) })) }; }) };
 }
 /* maintenance by machine and kind of work (owner, 21 Nov 2026): for each machine, A to Z, the tasks' time, the combined worker time and the timers, and the
    same for each kind of work on it, in the order Repair, Regular maintenance, Changing tooling. Every job together: maintenance is mostly "Shop, no job". */
@@ -1131,11 +1286,11 @@ function mergeEvents(known, incoming) {
 }
 
 return { FORMAT, VERSION, ZONE, PLACES, EVENT_TYPES, OP_KINDS, OP_MODES, CNC_PARTS, CNC_WORDS, MAINTENANCE_KINDS, STARTER_MACHINES, LONG_HOURS, END_OF_DAY, EOD_KEEP_DAYS,
-  EDITABLE, ID_LETTERS, SHOP_NO_JOB, OWN_VEHICLE, LATE_DAYS, TRIP_WIDE, STARTER_OPERATIONS,
+  EDITABLE, LABELS_STARTER, ID_LETTERS, SHOP_NO_JOB, OWN_VEHICLE, LATE_DAYS, TRIP_WIDE, STARTER_OPERATIONS,
   isInstant, localDay, localClock, showClock, atLocal, nextDay, offsetAt, showMinutes, showElapsed, hoursWords,
   starterLists, checkLists, addName, removeName, addVehicle, removeVehicle, addMachine, removeMachine, addOperation, setOperation, removeOperation, setJobs, setLong, longOn,
   namesNow, vehiclesNow, addPerson, removePerson, addVehicleHere, removeVehicleHere, endOfDayOf, setEndOfDay, eodRefresh, whoOf,
   newDeviceId, nextEventId, inOrder, eventProblems, timersFrom, startTimer, startTrip, stopTimer, stopTrip, typedTimer, editTimer, stillGoing,
-  pauseTimer, resumeTimer, switchCnc, undoSwitch, checkIn, stopAtCheckin,
-  jobTotals, personTasks, maintenanceTotals, vehicleKm, lastReading, tripsFrom, recordPath, dayFiles, checkDay, readFile, mergeEvents };
+  pauseTimer, resumeTimer, switchCnc, undoSwitch, setLabels, labelsWay, labelsWords, labelsRowWords, checkIn, stopAtCheckin,
+  jobTotals, workerTime, maintenanceTotals, vehicleKm, lastReading, tripsFrom, recordPath, dayFiles, checkDay, readFile, mergeEvents };
 });
